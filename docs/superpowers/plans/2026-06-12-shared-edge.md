@@ -89,7 +89,7 @@ news.zingler46.unividuell.org {
 			roll_keep 7
 		}
 	}
-	basicauth {
+	basic_auth {
 		futzi {$BASIC_AUTH_HASH}
 		tonnenbolzer {$BASIC_AUTH_HASH}
 	}
@@ -97,13 +97,16 @@ news.zingler46.unividuell.org {
 }
 ```
 
+> **Caddy directive:** current Caddy (2.8+, as in `caddy:2-alpine`) renamed `basicauth` →
+> **`basic_auth`**. The old comunio Caddyfile used `basicauth`; use `basic_auth` here.
+
 - [ ] **Step 2: Validate it adapts**
 
-Run:
+Run (a real-looking hash is needed — Caddy resolves `{$BASIC_AUTH_HASH}` **at adapt time**, not just runtime, and rejects an empty `basic_auth` hash):
 ```bash
-docker run --rm -i caddy:2-alpine sh -c 'cat > /tmp/Caddyfile && caddy adapt --config /tmp/Caddyfile --adapter caddyfile > /dev/null && echo ADAPT_OK' < /opt/unividuell/projects/edge-caddy/Caddyfile
+docker run --rm -i -e 'BASIC_AUTH_HASH=$2a$14$abcdefghijklmnopqrstuvABCDEFGHIJKLMNOPQRSTUVWXYZ012345' caddy:2-alpine sh -c 'cat > /tmp/Caddyfile && caddy adapt --config /tmp/Caddyfile --adapter caddyfile > /dev/null && echo ADAPT_OK' < /opt/unividuell/projects/edge-caddy/Caddyfile
 ```
-Expected: prints `ADAPT_OK` (no adapt warnings/errors). The `{$BASIC_AUTH_HASH}` placeholder is fine — Caddy resolves env at runtime; adapt treats it as a literal.
+Expected: prints `ADAPT_OK`.
 
 - [ ] **Step 3: Commit**
 

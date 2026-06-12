@@ -21,4 +21,10 @@ default; Spring needs `server.forward-headers-strategy=framework`.
 **The `edge` network is created idempotently** by each project's `update.sh`
 (`docker network create edge 2>/dev/null || true`) so any stack can come up independently.
 
+**Caddyfile gotchas (current Caddy, `caddy:2-alpine`):**
+- The directive is **`basic_auth`**, not the pre-2.8 `basicauth`.
+- `{$ENV}` placeholders are resolved **at `caddy adapt` time**, not only at runtime — so
+  `caddy adapt` of a `basic_auth` block with an empty hash *fails*. When validating locally,
+  pass a real-looking value: `docker run --rm -i -e 'BASIC_AUTH_HASH=$2a$14$...' caddy:2-alpine …`.
+
 Server layout: all projects live under `/opt/unividuell/<project>/`.
