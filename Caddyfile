@@ -1,0 +1,36 @@
+# ================= Global config =================
+{
+	email unividuell@gmail.com
+	log {
+		output file /var/log/caddy/system.log {
+			roll_size 3mb
+			roll_keep 2
+		}
+		level INFO
+	}
+}
+
+# countdown SPA + API (TLS here; countdown-web serves :80 plain behind the edge)
+countdown.unividuell.org {
+	reverse_proxy countdown-web:80
+}
+
+# mobility-manager (plain :8080 behind the edge)
+mobility.unividuell.org {
+	reverse_proxy mobility-manager:8080
+}
+
+# comunio-news (basicauth at the edge)
+news.zingler46.unividuell.org {
+	log {
+		output file /var/log/caddy/news_zingler46_access.log {
+			roll_size 10mb
+			roll_keep 7
+		}
+	}
+	basic_auth {
+		futzi {$BASIC_AUTH_HASH}
+		tonnenbolzer {$BASIC_AUTH_HASH}
+	}
+	reverse_proxy comunio-news-app:8080
+}
