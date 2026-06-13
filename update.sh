@@ -17,5 +17,8 @@ fi
 docker network create edge 2>/dev/null || true
 docker compose --env-file .env -f compose.yaml pull
 docker compose --env-file .env -f compose.yaml up -d
+# The Caddyfile is bind-mounted; `up -d` does NOT recreate the container on a config-only
+# change, so reload Caddy explicitly to pick up Caddyfile edits (new sites/routes).
+docker compose --env-file .env -f compose.yaml exec -T caddy caddy reload --config /etc/caddy/Caddyfile
 docker image prune -f
 echo "Edge update complete."
