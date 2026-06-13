@@ -15,6 +15,11 @@ countdown.unividuell.org {
 	reverse_proxy countdown-web:80
 }
 
+# countdown staging (own stack, test-user login)
+beta.countdown.unividuell.org {
+	reverse_proxy countdown-staging-web:80
+}
+
 # mobility-manager (plain :8080 behind the edge)
 mobility.unividuell.org {
 	reverse_proxy mobility-manager:8080
