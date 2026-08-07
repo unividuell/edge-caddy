@@ -104,10 +104,23 @@ It does **not** alert, and it has no latency percentiles — only average and ma
 Unique visitors are keyed on masked IP + user agent + day, so treat them as a
 trend, not a headcount.
 
-Ad-hoc queries against the raw log, e.g. the top 10 user agents:
+Ad-hoc queries against the raw log. Caddy writes it as root with mode `0600`, so
+reading it needs `sudo` — e.g. the top 10 user agents:
 
 ```bash
-jq -r '.request.headers."User-Agent"[0]' logs/access.log | sort | uniq -c | sort -rn | head
+sudo jq -r '.request.headers."User-Agent"[0]' logs/access.log | sort | uniq -c | sort -rn | head
+```
+
+Traffic per domain, which is what the `vhosts` panel shows:
+
+```bash
+sudo jq -r '.request.host' logs/access.log | sort | uniq -c | sort -rn
+```
+
+The slowest requests, which the dashboard only summarises as an average:
+
+```bash
+sudo jq -r '[.duration, .status, .request.host, .request.uri] | @tsv' logs/access.log | sort -rn | head
 ```
 
 ## Certs
