@@ -10,7 +10,9 @@ services:
       - "443:443"
       - "443:443/udp"
     environment:
-      - BASIC_AUTH_HASH=${BASIC_AUTH_HASH}
+      - NEWS_AUTH_USER_1=${NEWS_AUTH_USER_1}
+      - NEWS_AUTH_USER_2=${NEWS_AUTH_USER_2}
+      - NEWS_AUTH_HASH=${NEWS_AUTH_HASH}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - ./logs:/var/log/caddy

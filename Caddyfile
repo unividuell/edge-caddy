@@ -46,8 +46,8 @@ mobility.unividuell.org {
 news.zingler46.unividuell.org {
 	log access
 	basic_auth {
-		futzi {$BASIC_AUTH_HASH}
-		tonnenbolzer {$BASIC_AUTH_HASH}
+		{$NEWS_AUTH_USER_1} {$NEWS_AUTH_HASH}
+		{$NEWS_AUTH_USER_2} {$NEWS_AUTH_HASH}
 	}
 	reverse_proxy comunio-news-app:8080
 }
