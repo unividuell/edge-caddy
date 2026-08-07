@@ -15,6 +15,14 @@ services:
       - NEWS_AUTH_HASH=${NEWS_AUTH_HASH}
       - STATS_AUTH_USER_1=${STATS_AUTH_USER_1}
       - STATS_AUTH_HASH_1=${STATS_AUTH_HASH_1}
+      # Dashboard slots 2 and 3 are optional — fill the pair in .env to add a user.
+      # These fallbacks are NOT default logins. Caddy refuses to adapt a basic_auth
+      # entry with an empty user or hash, so an unfilled slot still needs a value.
+      # The hash below was typed by hand (22x'D' salt, 31x'u' digest), not produced
+      # by hashing any password, so no known password authenticates against it, and
+      # inverting bcrypt at cost 14 to find one is infeasible. Verified: the slot
+      # returns 401 for an empty password, for the username, and for the hash itself.
+      # ($$ is compose's escape for a literal $.)
       - STATS_AUTH_USER_2=${STATS_AUTH_USER_2:-unused-slot-2}
       - STATS_AUTH_HASH_2=${STATS_AUTH_HASH_2:-$$2a$$14$$DDDDDDDDDDDDDDDDDDDDDDuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu}
       - STATS_AUTH_USER_3=${STATS_AUTH_USER_3:-unused-slot-3}
