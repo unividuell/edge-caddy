@@ -8,34 +8,59 @@
 		}
 		level INFO
 	}
+	log access {
+		output file /var/log/caddy/access.log {
+			roll_size 20mb
+			roll_keep 5
+		}
+		format filter {
+			wrap json
+			request>remote_ip ip_mask 24 48
+			request>client_ip ip_mask 24 48
+			request>headers>Cookie delete
+			request>headers>Authorization delete
+		}
+		include http.log.access
+	}
 }
 
 # countdown SPA + API (TLS here; countdown-web serves :80 plain behind the edge)
 countdown.unividuell.org {
+	log access
 	reverse_proxy countdown-web:80
 }
 
 # countdown staging (own stack, test-user login)
 beta.countdown.unividuell.org {
+	log access
 	reverse_proxy countdown-staging-web:80
 }
 
 # mobility-manager (plain :8080 behind the edge)
 mobility.unividuell.org {
+	log access
 	reverse_proxy mobility-manager:8080
 }
 
 # comunio-news (basicauth at the edge)
 news.zingler46.unividuell.org {
-	log {
-		output file /var/log/caddy/news_zingler46_access.log {
-			roll_size 10mb
-			roll_keep 7
-		}
-	}
+	log access
 	basic_auth {
-		futzi {$BASIC_AUTH_HASH}
-		tonnenbolzer {$BASIC_AUTH_HASH}
+		{$NEWS_AUTH_USER_1} {$NEWS_AUTH_HASH}
+		{$NEWS_AUTH_USER_2} {$NEWS_AUTH_HASH}
 	}
 	reverse_proxy comunio-news-app:8080
+}
+
+# traffic dashboard (GoAccess renders report/index.html; basicauth at the edge)
+# Slot 1 is required; unused slots fall back to a placeholder via compose.yaml.
+stats.unividuell.org {
+	log access
+	basic_auth {
+		{$STATS_AUTH_USER_1} {$STATS_AUTH_HASH_1}
+		{$STATS_AUTH_USER_2} {$STATS_AUTH_HASH_2}
+		{$STATS_AUTH_USER_3} {$STATS_AUTH_HASH_3}
+	}
+	root * /srv/report
+	file_server
 }

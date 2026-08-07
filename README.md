@@ -12,29 +12,73 @@ Server dir: **`/opt/unividuell/edge-caddy/`**. Images are pulled from Docker Hub
 | Domain | Upstream container |
 | --- | --- |
 | `countdown.unividuell.org` | `countdown-web:80` |
+| `beta.countdown.unividuell.org` | `countdown-staging-web:80` |
 | `mobility.unividuell.org` | `mobility-manager:8080` |
 | `news.zingler46.unividuell.org` | `comunio-news-app:8080` (basicauth) |
+| `stats.unividuell.org` | *(static GoAccess report, basicauth)* |
 
 ## Bootstrap (first time)
 ```bash
 mkdir -p /opt/unividuell/edge-caddy && cd /opt/unividuell/edge-caddy
 curl -fsSL https://raw.githubusercontent.com/unividuell/edge-caddy/main/update.sh -o update.sh && chmod +x update.sh
 ./update.sh          # fetches compose.yaml + Caddyfile + a .env template, then stops
-# edit .env: set BASIC_AUTH_HASH (see below)
+# edit .env: fill in credentials (see below)
 ./update.sh          # creates the edge network, pulls caddy, starts the edge
 ```
 
-`BASIC_AUTH_HASH` is a bcrypt hash shared by the two news users:
+`.env` holds all credentials and is never committed. Copy `.env.example` and fill in:
+
+| Variable | Meaning |
+| --- | --- |
+| `NEWS_AUTH_USER_1`, `NEWS_AUTH_USER_2` | the two `news.zingler46` users |
+| `NEWS_AUTH_HASH` | bcrypt hash shared by both news users |
+| `STATS_AUTH_USER_1`, `STATS_AUTH_HASH_1` | first dashboard user (required) |
+| `STATS_AUTH_USER_2/3`, `STATS_AUTH_HASH_2/3` | further dashboard users (optional) |
+
 ```bash
 docker run --rm caddy:2-alpine caddy hash-password --plaintext '<password>'
 ```
+
+**Wrap every hash in single quotes.** Compose interpolates `$` in `.env` values and a
+bcrypt hash contains three of them; unquoted *and* double-quoted both eat the `$…`
+sequences, leaving `$2a$14` plus the tail after the last one — around 38 characters,
+varying with the salt. Caddy accepts such a hash without complaint and simply never
+matches a password, so the failure is a silent lockout, not an error. A Caddy hash is
+always exactly 60 characters, so `update.sh` requires this exact shape and aborts
+before deploying otherwise:
+
+```
+NEWS_AUTH_HASH='$2a$14$.....................................................'
+```
+
+### Adding a dashboard user
+
+Two steps, both required:
+
+1. Fill the next free slot in `.env` (`STATS_AUTH_USER_2` / `STATS_AUTH_HASH_2`).
+2. Add the matching two lines to the edge service's `environment:` in `compose.yaml` —
+   `{$VAR}` in the `Caddyfile` reads the *container's* environment, so a variable that
+   is only in `.env` never reaches Caddy.
+
+Then `./update.sh`. The `Caddyfile` already declares slots 2 and 3; a slot whose
+variables are unset drops out of the config, so only the slots you wire up exist.
+A fourth user additionally needs a slot in the `stats` block in `Caddyfile`.
 
 ## Update (route/infra changes)
 ```bash
 cd /opt/unividuell/edge-caddy && ./update.sh
 ```
-Re-fetches `compose.yaml`, `Caddyfile`, `README.md`, and itself from `main`, ensures the
-`edge` network, then `docker compose pull && up -d`.
+Re-fetches `compose.yaml`, `Caddyfile`, `README.md`, and itself from `main`, then:
+
+1. **`.env` preflight** — every required variable present and non-empty, and every hash
+   in the single-quoted 60-character form. Aborts with an explanatory message otherwise,
+   before anything is touched.
+2. Ensures the `edge` network and runs `docker compose pull`.
+3. **Validation gate** — `caddy validate` against the real `Caddyfile` with the real
+   `.env`, in a throwaway container that publishes no ports. Aborts if the config would
+   not start, leaving the running edge untouched.
+4. `docker compose up -d`, then `caddy reload` — `up -d` does not recreate the container
+   for a `Caddyfile`-only change, so the reload is what picks up new sites and routes.
 
 ## Add a new site
 1. Add a site block to `Caddyfile`: `<domain> { reverse_proxy <container_name>:<port> }`.
@@ -42,7 +86,31 @@ Re-fetches `compose.yaml`, `Caddyfile`, `README.md`, and itself from `main`, ens
    a stable `container_name` and **publishes no host ports**.
 3. Commit, then on the server `./update.sh`. Caddy obtains the cert on first request.
 
+## Monitoring
+
+Every site writes one JSON access log, `logs/access.log`, with client IPs masked
+(IPv4 `/24`, IPv6 `/48`) and `Cookie` / `Authorization` headers stripped. The
+`edge-goaccess` container renders it into `report/index.html` every 5 minutes and
+keeps cumulative aggregates in the `goaccess-db` volume, so history outlives log
+rotation. The dashboard is at `https://stats.unividuell.org` behind basic auth.
+
+After a first deploy `stats.unividuell.org` returns **404 for up to five minutes** —
+`report/index.html` does not exist until GoAccess completes its first pass.
+
+It answers: which domain gets the traffic, which status codes, which user agents
+and bots, which URLs, and average/max request duration per row.
+
+It does **not** alert, and it has no latency percentiles — only average and max.
+Unique visitors are keyed on masked IP + user agent + day, so treat them as a
+trend, not a headcount.
+
+Ad-hoc queries against the raw log, e.g. the top 10 user agents:
+
+```bash
+jq -r '.request.headers."User-Agent"[0]' logs/access.log | sort | uniq -c | sort -rn | head
+```
+
 ## Certs
 Caddy stores certs/ACME state in the `caddy-data` volume. A fresh volume triggers
 Let's Encrypt issuance for every domain on first request — well within rate limits for
-three domains. DNS for each domain must already point at this host and 80/443 must be open.
+five domains. DNS for each domain must already point at this host and 80/443 must be open.
