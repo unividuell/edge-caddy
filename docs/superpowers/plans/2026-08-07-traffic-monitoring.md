@@ -574,8 +574,8 @@ docker run --rm -v ga-plan-logs:/logs:ro -v ga-plan-db:/db -v ga-plan-report:/re
       --log-format=CADDY --no-global-config --no-progress --tz=Europe/Berlin \
       --db-path=/db --restore --persist --real-os \
       --html-report-title="unividuell edge" \
-      -o /report/.index.html.tmp \
-    && mv /report/.index.html.tmp /report/index.html \
+      -o /report/.tmp.html \
+    && mv /report/.tmp.html /report/index.html \
     && echo "generated: $(wc -c < /report/index.html) bytes" \
     && grep -c "countdown.unividuell.org" /report/index.html'
 docker volume rm ga-plan-logs ga-plan-db ga-plan-report
@@ -608,8 +608,8 @@ Under `services:`, after the `caddy` service:
               --restore --persist \
               --real-os \
               --html-report-title='unividuell edge' \
-              -o /report/.index.html.tmp \
-            && mv /report/.index.html.tmp /report/index.html
+              -o /report/.tmp.html \
+            && mv /report/.tmp.html /report/index.html
           fi
           sleep 300
         done
@@ -621,7 +621,8 @@ Under `services:`, after the `caddy` service:
 
 Notes for the implementer:
 - `-s` (not `-f`) skips a log file that exists but is still empty — a fresh deploy before the first request.
-- Rendering to `.index.html.tmp` and then `mv`-ing is what stops Caddy serving a half-written page; `mv` within one filesystem is atomic.
+- Rendering to `.tmp.html` and then `mv`-ing is what stops Caddy serving a half-written page; `mv` within one filesystem is atomic.
+- The temp name **must end in `.html`**. GoAccess picks its output format from the extension after the *last* dot, so `.index.html.tmp` is read as extension `tmp` and rejected with *"Invalid filename extension"* — it writes no file at all. Verified.
 - Crawlers are deliberately **not** filtered (`--ignore-crawlers` is intentionally absent) — bot traffic is part of what should be visible.
 
 - [ ] **Step 3: Add the volume**
