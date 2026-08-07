@@ -119,21 +119,53 @@ non-JSON) is **removed** — all sites share one log, and the `vhosts` panel sep
 
 ### 3. `Caddyfile` — the `stats` site
 
-Follows the existing `news.zingler46` basic-auth pattern:
-
 ```
 stats.unividuell.org {
     log access
     basic_auth {
-        stats {$STATS_AUTH_HASH}
+        {$STATS_AUTH_USER} {$STATS_AUTH_HASH}
     }
     root * /srv/report
     file_server
 }
 ```
 
-A **separate** hash from `BASIC_AUTH_HASH`, so the news credentials and the monitoring
-credentials are independent.
+A **separate** credential pair from the news site, so the two are independent.
+
+### 3a. `Caddyfile` — credentials out of the public repo
+
+`github.com/unividuell/edge-caddy` is **public** (verified: `visibility: PUBLIC`, and an
+unauthenticated fetch of `raw.githubusercontent.com/.../Caddyfile` returns 200 — which is
+also how `update.sh` bootstraps). The `news.zingler46` usernames `futzi` and `tonnenbolzer`
+are therefore currently world-readable in the committed `Caddyfile`.
+
+Both sites move their usernames into the environment:
+
+```
+news.zingler46.unividuell.org {
+    basic_auth {
+        {$NEWS_AUTH_USER_1} {$NEWS_AUTH_HASH}
+        {$NEWS_AUTH_USER_2} {$NEWS_AUTH_HASH}
+    }
+    ...
+}
+```
+
+Verified that `{$ENV}` resolves for the *username* field too, not only the hash.
+
+Basic-auth security rests on the password, so this is a modest hardening — but Caddy's
+`basic_auth` has no built-in rate limiting, and with a public repo an attacker would
+otherwise know both the hostname and the username, leaving only the password. The cost is
+one line per credential.
+
+`BASIC_AUTH_HASH` is **renamed to `NEWS_AUTH_HASH`** for symmetry with the new variables.
+The two news users keep sharing one hash, as today.
+
+> **Deployment hazard.** `{$ENV}` placeholders resolve at *adapt* time, so a missing or
+> misspelled variable makes `caddy adapt` fail. Because `compose.yaml` changes in this work,
+> the edge container is **recreated** rather than merely reloaded — a bad `.env` therefore
+> takes all sites down, not just the reload. The complete `.env` must be in place *before*
+> `./update.sh` runs.
 
 ### 4. `compose.yaml` — the GoAccess service
 
@@ -163,10 +195,27 @@ wants to see.
 
 The edge gains `- ./report:/srv/report:ro`; a `goaccess-db` named volume is added.
 
+### 4a. `compose.yaml` — passing the new variables through
+
+`{$VAR}` in the Caddyfile reads the **container's** environment, not the `.env` file. The
+`.env` only feeds `${...}` interpolation in `compose.yaml`, so every new variable must also
+be listed under the edge service's `environment:`:
+
+```yaml
+    environment:
+      - NEWS_AUTH_USER_1=${NEWS_AUTH_USER_1}
+      - NEWS_AUTH_USER_2=${NEWS_AUTH_USER_2}
+      - NEWS_AUTH_HASH=${NEWS_AUTH_HASH}
+      - STATS_AUTH_USER=${STATS_AUTH_USER}
+      - STATS_AUTH_HASH=${STATS_AUTH_HASH}
+```
+
+Omitting a line here fails exactly like omitting it from `.env`.
+
 ### 5. Supporting files
 
 - `update.sh` — fetch the new files from `main`; create `report/` before `up`.
-- `.env.example` — document `STATS_AUTH_HASH` with its generation command.
+- `.env.example` — all five variables with the hash-generation command.
 - `.gitignore` — add `report/`.
 - `README.md` — the new route, the monitoring section, the DNS prerequisite.
 
@@ -223,10 +272,12 @@ dashboard, not billing.
 
 ## Prerequisites (operator)
 
-- A **DNS A record** for `stats.unividuell.org` pointing at the host. Without it Caddy
-  cannot obtain a certificate.
-- `STATS_AUTH_HASH` in `.env`:
+- ~~A **DNS A record** for `stats.unividuell.org`~~ — done (2026-08-07).
+- The complete `.env` on the server, in place **before** `./update.sh` runs — all five
+  variables, including the renamed `NEWS_AUTH_HASH`. See the deployment hazard in §3a.
+  Hashes are generated with
   `docker run --rm caddy:2-alpine caddy hash-password --plaintext '<password>'`
+  and never committed: `.env` is git-ignored and `update.sh` only creates it when missing.
 
 ## Verification
 
@@ -243,3 +294,8 @@ dashboard, not billing.
    is unchanged.
 6. **The dashboard is protected.** `stats.unividuell.org` returns 401 without credentials
    and the report with them.
+7. **The news credentials still work.** After the `BASIC_AUTH_HASH` → `NEWS_AUTH_HASH`
+   rename, `news.zingler46.unividuell.org` still returns 401 without credentials and 200
+   with each of the two existing users — this is a regression check on a live site.
+8. **No credentials are committed.** `git grep` for the hash prefix and for the literal
+   usernames finds nothing outside `.env.example` placeholders.
