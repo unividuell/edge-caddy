@@ -51,3 +51,16 @@ news.zingler46.unividuell.org {
 	}
 	reverse_proxy comunio-news-app:8080
 }
+
+# traffic dashboard (GoAccess renders report/index.html; basicauth at the edge)
+# Slot 1 is required; unused slots fall back to a placeholder via compose.yaml.
+stats.unividuell.org {
+	log access
+	basic_auth {
+		{$STATS_AUTH_USER_1} {$STATS_AUTH_HASH_1}
+		{$STATS_AUTH_USER_2} {$STATS_AUTH_HASH_2}
+		{$STATS_AUTH_USER_3} {$STATS_AUTH_HASH_3}
+	}
+	root * /srv/report
+	file_server
+}
