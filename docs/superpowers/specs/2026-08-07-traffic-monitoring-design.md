@@ -137,19 +137,24 @@ stats.unividuell.org {
 
 Credentials are **separate** from the news site, so the two are independent.
 
-An empty slot cannot simply be left blank — verified, `caddy adapt` fails outright with
-*"username and password cannot be empty or missing"*. Unused slots therefore fall back to a
-placeholder via Compose's `:-` default syntax (see §4a): a fixed username and a well-formed
-bcrypt string for which no password is known.
+**Only slot 1's variables are passed into the container** (see §4a). A slot whose two
+variables are both unset collapses to an empty line, which the Caddyfile parser skips —
+verified: adapting this block with only `STATS_AUTH_USER_1`/`_HASH_1` in the environment
+yields exactly one account and no error. The extra slots therefore cost nothing while
+unused; they exist so that adding a user is a two-line change to `compose.yaml` rather than
+a change to the routing config.
 
-Verified at runtime that a placeholder slot grants nothing: with slot 1 holding a real
-credential, requests to the placeholder slot returned 401 with an empty password, with a
-guessed password, and with the placeholder hash itself supplied as the password — while the
-real slot-1 user returned 200.
+A **half**-filled slot is the one failure mode: with a username but no hash, `caddy adapt`
+fails outright with *"username and password cannot be empty or missing"*. The `caddy
+validate` gate in `update.sh` catches that before the container is recreated.
 
-**Adding a fourth user later** means adding one more slot to this block and to §4a. Adding a
-*second* or *third* user needs no repo change at all — just fill the variables in `.env` and
-redeploy.
+**Adding a second or third user:** fill the pair in `.env` *and* add the two matching
+passthrough lines to §4a. A fourth user additionally needs a slot in this block.
+
+An earlier revision instead gave unused slots a committed placeholder credential via
+Compose's `:-` default. That worked and was verified to grant no access, but a
+credential-shaped constant in a public repo invites exactly the question it got in review,
+so the placeholder was dropped in favour of simply not passing unused slots through.
 
 ### 3a. `Caddyfile` — credentials out of the public repo
 
@@ -227,17 +232,14 @@ be listed under the edge service's `environment:`:
       - NEWS_AUTH_HASH=${NEWS_AUTH_HASH}
       - STATS_AUTH_USER_1=${STATS_AUTH_USER_1}
       - STATS_AUTH_HASH_1=${STATS_AUTH_HASH_1}
-      - STATS_AUTH_USER_2=${STATS_AUTH_USER_2:-unused-slot-2}
-      - STATS_AUTH_HASH_2=${STATS_AUTH_HASH_2:-$$2a$$14$$DDDDDDDDDDDDDDDDDDDDDDuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu}
-      - STATS_AUTH_USER_3=${STATS_AUTH_USER_3:-unused-slot-3}
-      - STATS_AUTH_HASH_3=${STATS_AUTH_HASH_3:-$$2a$$14$$DDDDDDDDDDDDDDDDDDDDDDuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu}
 ```
 
-Omitting a line here fails exactly like omitting it from `.env`.
+Only the slots actually in use appear here. Adding dashboard user 2 means adding
+`STATS_AUTH_USER_2` / `STATS_AUTH_HASH_2` to this list as well as to `.env` — the
+`Caddyfile` slot already exists and stays inert until both variables arrive.
 
-The `$$` in the placeholder hashes is Compose's escape for a literal `$` — verified to reach
-the container as `$2a$14$DDD…`. The placeholder is safe to commit: it is a well-formed bcrypt
-string with no known preimage, and finding one at cost 14 is infeasible.
+Omitting a line here for a variable that *is* set in `.env` silently does nothing: the
+value never reaches Caddy.
 
 ### 5. Supporting files
 
@@ -329,8 +331,8 @@ dashboard, not billing.
 5. **No double counting.** Note a hit count, wait two intervals without traffic, confirm it
    is unchanged.
 6. **The dashboard is protected.** `stats.unividuell.org` returns 401 without credentials
-   and the report with them — and an *unfilled* slot grants nothing: 401 for the placeholder
-   username with an empty password, a guessed password, and the placeholder hash itself.
+   and the report with them — and the adapted config contains exactly **one** account for
+   `stats.unividuell.org`, confirming the unwired slots produce no credential at all.
 7. **The news credentials still work.** After the `BASIC_AUTH_HASH` → `NEWS_AUTH_HASH`
    rename, `news.zingler46.unividuell.org` still returns 401 without credentials and 200
    with each of the two existing users — this is a regression check on a live site.

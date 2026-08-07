@@ -53,10 +53,16 @@ NEWS_AUTH_HASH='$2a$14$.....................................................'
 
 ### Adding a dashboard user
 
-Fill the next free slot in `.env` and run `./update.sh`. Slots 2 and 3 need no repo
-change; unfilled slots fall back to a placeholder credential nobody can log in with.
-A fourth user means adding a slot to the `stats` block in `Caddyfile` and to the edge
-service's `environment:` in `compose.yaml`.
+Two steps, both required:
+
+1. Fill the next free slot in `.env` (`STATS_AUTH_USER_2` / `STATS_AUTH_HASH_2`).
+2. Add the matching two lines to the edge service's `environment:` in `compose.yaml` —
+   `{$VAR}` in the `Caddyfile` reads the *container's* environment, so a variable that
+   is only in `.env` never reaches Caddy.
+
+Then `./update.sh`. The `Caddyfile` already declares slots 2 and 3; a slot whose
+variables are unset drops out of the config, so only the slots you wire up exist.
+A fourth user additionally needs a slot in the `stats` block in `Caddyfile`.
 
 ## Update (route/infra changes)
 ```bash
