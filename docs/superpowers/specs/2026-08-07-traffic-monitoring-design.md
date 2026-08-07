@@ -119,18 +119,37 @@ non-JSON) is **removed** — all sites share one log, and the `vhosts` panel sep
 
 ### 3. `Caddyfile` — the `stats` site
 
+The dashboard must support **several users**, so credentials are numbered slots. Three are
+declared; only slot 1 is required.
+
 ```
 stats.unividuell.org {
     log access
     basic_auth {
-        {$STATS_AUTH_USER} {$STATS_AUTH_HASH}
+        {$STATS_AUTH_USER_1} {$STATS_AUTH_HASH_1}
+        {$STATS_AUTH_USER_2} {$STATS_AUTH_HASH_2}
+        {$STATS_AUTH_USER_3} {$STATS_AUTH_HASH_3}
     }
     root * /srv/report
     file_server
 }
 ```
 
-A **separate** credential pair from the news site, so the two are independent.
+Credentials are **separate** from the news site, so the two are independent.
+
+An empty slot cannot simply be left blank — verified, `caddy adapt` fails outright with
+*"username and password cannot be empty or missing"*. Unused slots therefore fall back to a
+placeholder via Compose's `:-` default syntax (see §4a): a fixed username and a well-formed
+bcrypt string for which no password is known.
+
+Verified at runtime that a placeholder slot grants nothing: with slot 1 holding a real
+credential, requests to the placeholder slot returned 401 with an empty password, with a
+guessed password, and with the placeholder hash itself supplied as the password — while the
+real slot-1 user returned 200.
+
+**Adding a fourth user later** means adding one more slot to this block and to §4a. Adding a
+*second* or *third* user needs no repo change at all — just fill the variables in `.env` and
+redeploy.
 
 ### 3a. `Caddyfile` — credentials out of the public repo
 
@@ -206,11 +225,19 @@ be listed under the edge service's `environment:`:
       - NEWS_AUTH_USER_1=${NEWS_AUTH_USER_1}
       - NEWS_AUTH_USER_2=${NEWS_AUTH_USER_2}
       - NEWS_AUTH_HASH=${NEWS_AUTH_HASH}
-      - STATS_AUTH_USER=${STATS_AUTH_USER}
-      - STATS_AUTH_HASH=${STATS_AUTH_HASH}
+      - STATS_AUTH_USER_1=${STATS_AUTH_USER_1}
+      - STATS_AUTH_HASH_1=${STATS_AUTH_HASH_1}
+      - STATS_AUTH_USER_2=${STATS_AUTH_USER_2:-unused-slot-2}
+      - STATS_AUTH_HASH_2=${STATS_AUTH_HASH_2:-$$2a$$14$$DDDDDDDDDDDDDDDDDDDDDDuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu}
+      - STATS_AUTH_USER_3=${STATS_AUTH_USER_3:-unused-slot-3}
+      - STATS_AUTH_HASH_3=${STATS_AUTH_HASH_3:-$$2a$$14$$DDDDDDDDDDDDDDDDDDDDDDuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu}
 ```
 
 Omitting a line here fails exactly like omitting it from `.env`.
+
+The `$$` in the placeholder hashes is Compose's escape for a literal `$` — verified to reach
+the container as `$2a$14$DDD…`. The placeholder is safe to commit: it is a well-formed bcrypt
+string with no known preimage, and finding one at cost 14 is infeasible.
 
 ### 5. Supporting files
 
@@ -236,6 +263,14 @@ unique-visitor accuracy, but an unsalted 32-bit hash over the IPv4 space is triv
 brute-forceable — pseudonymisation, not anonymisation, so the data stays personal — and it
 destroys geo resolution that a /24 preserves. It would also only fix one of the four
 distortions listed under Limitations; the dominant one (per-day counting) is unaffected.
+
+**Numbered credential slots, not one multi-user variable.** `{$VAR}` expands into *multiple*
+Caddyfile tokens, so a single variable holding newline-separated `user hash` pairs does work
+— verified, it yielded two accounts — and would support unlimited users with no config
+change. It is rejected anyway: multi-line values in a Compose `.env` are awkward, and they
+would stack a second sharp edge on top of the `$`-interpolation hazard that already governs
+these values. Numbered slots keep every variable a plain single-line string. (Space-separated
+pairs in one variable simply fail to parse: *"wrong argument count or unexpected line ending"*.)
 
 **Periodic regeneration, not `--real-time-html`.** Real-time needs a WebSocket proxied
 through the edge. Periodic rendering is robust against log rotation and adds no listener.
@@ -273,8 +308,9 @@ dashboard, not billing.
 ## Prerequisites (operator)
 
 - ~~A **DNS A record** for `stats.unividuell.org`~~ — done (2026-08-07).
-- The complete `.env` on the server, in place **before** `./update.sh` runs — all five
-  variables, including the renamed `NEWS_AUTH_HASH`. See the deployment hazard in §3a.
+- The complete `.env` on the server, in place **before** `./update.sh` runs — the three news
+  variables plus `STATS_AUTH_USER_1` / `STATS_AUTH_HASH_1`, including the renamed
+  `NEWS_AUTH_HASH`. Stats slots 2 and 3 are optional. See the deployment hazard in §3a.
   Hashes are generated with
   `docker run --rm caddy:2-alpine caddy hash-password --plaintext '<password>'`
   and never committed: `.env` is git-ignored and `update.sh` only creates it when missing.
@@ -293,7 +329,8 @@ dashboard, not billing.
 5. **No double counting.** Note a hit count, wait two intervals without traffic, confirm it
    is unchanged.
 6. **The dashboard is protected.** `stats.unividuell.org` returns 401 without credentials
-   and the report with them.
+   and the report with them — and an *unfilled* slot grants nothing: 401 for the placeholder
+   username with an empty password, a guessed password, and the placeholder hash itself.
 7. **The news credentials still work.** After the `BASIC_AUTH_HASH` → `NEWS_AUTH_HASH`
    rename, `news.zingler46.unividuell.org` still returns 401 without credentials and 200
    with each of the two existing users — this is a regression check on a live site.
