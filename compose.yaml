@@ -28,9 +28,40 @@ services:
     networks:
       - edge
 
+  goaccess:
+    image: allinurl/goaccess:latest
+    container_name: edge-goaccess
+    restart: unless-stopped
+    # No network access needed — it only reads and writes files.
+    network_mode: none
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while :; do
+          if [ -s /logs/access.log ]; then
+            goaccess /logs/access.log \
+              --log-format=CADDY \
+              --no-global-config \
+              --no-progress \
+              --tz=Europe/Berlin \
+              --db-path=/db \
+              --restore --persist \
+              --real-os \
+              --html-report-title='unividuell edge' \
+              -o /report/.tmp.html \
+            && mv /report/.tmp.html /report/index.html
+          fi
+          sleep 300
+        done
+    volumes:
+      - ./logs:/logs:ro
+      - ./report:/report
+      - goaccess-db:/db
+
 volumes:
   caddy-data:
   caddy-config:
+  goaccess-db:
 
 networks:
   edge:
