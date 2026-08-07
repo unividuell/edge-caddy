@@ -10,7 +10,7 @@ curl -fsSL "$BASE/update.sh"    -o update.sh.new && chmod +x update.sh.new && mv
 
 if [ ! -f .env ]; then
   curl -fsSL "$BASE/.env.example" -o .env
-  echo ".env created from template — fill in BASIC_AUTH_HASH, then re-run ./update.sh"
+  echo ".env created from template — fill in the values in .env, then re-run ./update.sh"
   exit 1
 fi
 
