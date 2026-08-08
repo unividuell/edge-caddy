@@ -118,18 +118,29 @@ Client IPs are masked (`/24` IPv4, `/48` IPv6) before they are ever written, so 
 is the most this can resolve — which is also why no city database is installed. VPN and
 cloud traffic resolves to the exit node, so a scanner in `eu-central-1` counts as Germany.
 
-Force a refresh, e.g. after a failed download:
+`docker restart edge-geoip` only resumes the loop — useful if it is stuck in the hourly
+retry after a failed download, since restarting re-enters the loop immediately instead of
+waiting out the `sleep 3600`. It does **not** force a re-download: with a current `.stamp`,
+the loop's very first check on restart (`[ -f "$DB" ] && [ stamp = month ]`) is already true,
+so it just sleeps another 24 h without touching the network.
+
+To actually force a fresh download — e.g. to pick up a corrected release — delete the stamp
+first, so the loop's guard fails and it re-fetches:
 
 ```bash
-docker restart edge-geoip
+docker exec edge-geoip rm -f /geoip/.stamp && docker restart edge-geoip
 ```
 
-Then watch it work — a failed download leaves the previous database in place and
-retries hourly, and nothing alerts:
+Then check the result:
 
 ```bash
 docker logs --tail 20 edge-geoip
 ```
+
+Give it a few seconds before trusting this — right after a restart it can still show the
+*previous* run's `geoip: installed YYYY-MM` line, which reads as success but predates the new
+attempt. A failed download leaves the previous database in place and retries hourly, and
+nothing alerts.
 
 **One-time migration when enabling geo.** GoAccess resolves countries at parse time, so
 records already aggregated in `goaccess-db` never gain one. Run this **once**, and never
