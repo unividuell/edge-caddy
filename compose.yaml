@@ -92,6 +92,14 @@ services:
           prev=$$(printf '%s-%02d' "$$py" "$$pm")
           installed=""
           for cand in "$$month" "$$prev"; do
+            # A candidate already on disk (typically the previous-month fallback while the
+            # current month keeps 404ing) needs no re-fetch — only the un-stamped candidate
+            # (the current month) should actually hit the network.
+            if [ -f "$$DB" ] && [ "$$(cat "$$STAMP" 2>/dev/null)" = "$$cand" ]; then
+              echo "geoip: $$cand already installed, skipping re-download"
+              installed=$$cand
+              break
+            fi
             url="https://download.db-ip.com/free/dbip-country-lite-$$cand.mmdb.gz"
             echo "geoip: trying $$cand"
             if wget -q -O /geoip/.tmp.gz "$$url" \
