@@ -35,6 +35,12 @@ services:
       - |
         while :; do
           if [ -s /logs/access.log ]; then
+            # Built per pass, not once: a missing database file is fatal to GoAccess, so
+            # a fresh deploy must render geo-less until edge-geoip finishes. Each pass is
+            # a new process, so the flag starts applying — and monthly database swaps get
+            # picked up — with no restart.
+            GEO=""
+            [ -f /geoip/dbip-country-lite.mmdb ] && GEO="--geoip-database=/geoip/dbip-country-lite.mmdb"
             goaccess /logs/access.log \
               --log-format=CADDY \
               --no-global-config \
@@ -43,6 +49,8 @@ services:
               --db-path=/db \
               --restore --persist \
               --real-os \
+              $$GEO \
+              --html-custom-js=attribution.js \
               --html-report-title='unividuell edge' \
               -o /report/.tmp.html \
             && mv /report/.tmp.html /report/index.html
@@ -53,11 +61,75 @@ services:
       - ./logs:/logs:ro
       - ./report:/report
       - goaccess-db:/db
+      - geoip-data:/geoip:ro
+
+  # Keeps the GeoIP country database current. It exists as its own container so that
+  # edge-goaccess — which parses untrusted request data — can stay on network_mode: none.
+  geoip:
+    image: alpine:3
+    container_name: edge-geoip
+    restart: unless-stopped
+    # No `networks:` on purpose: Compose's auto-created default bridge gives the egress
+    # this needs, and it has no business on `edge` beside the application containers.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        DB=/geoip/dbip-country-lite.mmdb
+        STAMP=/geoip/.stamp
+        while :; do
+          month=$$(date -u +%Y-%m)
+          if [ -f "$$DB" ] && [ "$$(cat "$$STAMP" 2>/dev/null)" = "$$month" ]; then
+            sleep 86400
+            continue
+          fi
+          # DB-IP publishes monthly. On the first days of a month the new file may not
+          # exist yet, so fall back to the previous month.
+          y=$$(date -u +%Y)
+          m=$$(date -u +%m)
+          pm=$$(( $${m#0} - 1 ))
+          py=$$y
+          if [ "$$pm" -eq 0 ]; then pm=12; py=$$(( y - 1 )); fi
+          prev=$$(printf '%s-%02d' "$$py" "$$pm")
+          installed=""
+          for cand in "$$month" "$$prev"; do
+            # A candidate already on disk (typically the previous-month fallback while the
+            # current month keeps 404ing) needs no re-fetch — only the un-stamped candidate
+            # (the current month) should actually hit the network.
+            if [ -f "$$DB" ] && [ "$$(cat "$$STAMP" 2>/dev/null)" = "$$cand" ]; then
+              echo "geoip: $$cand already installed, skipping re-download"
+              installed=$$cand
+              break
+            fi
+            url="https://download.db-ip.com/free/dbip-country-lite-$$cand.mmdb.gz"
+            echo "geoip: trying $$cand"
+            if wget -q -O /geoip/.tmp.gz "$$url" \
+               && gunzip -f /geoip/.tmp.gz \
+               && mv /geoip/.tmp "$$DB"; then
+              printf '%s' "$$cand" > "$$STAMP"
+              installed=$$cand
+              echo "geoip: installed $$cand ($$(wc -c < "$$DB") bytes)"
+              break
+            fi
+          done
+          rm -f /geoip/.tmp.gz /geoip/.tmp
+          # The stamp records the month actually installed, not today's. Falling back to
+          # the previous month therefore leaves it behind the calendar, and the daily
+          # retry keeps going until the current month's file appears.
+          if [ -n "$$installed" ]; then
+            sleep 86400
+          else
+            echo "geoip: no database available, retrying in 1h"
+            sleep 3600
+          fi
+        done
+    volumes:
+      - geoip-data:/geoip
 
 volumes:
   caddy-data:
   caddy-config:
   goaccess-db:
+  geoip-data:
 
 networks:
   edge:

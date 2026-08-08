@@ -104,6 +104,68 @@ It does **not** alert, and it has no latency percentiles — only average and ma
 Unique visitors are keyed on masked IP + user agent + day, so treat them as a
 trend, not a headcount.
 
+### Geo data
+
+**Enabling this for the first time needs two `./update.sh` runs.** `update.sh` replaces
+itself with `mv`, which is a rename — the shell already running it keeps its file descriptor
+on the *old* inode and finishes executing the old script. So the first `./update.sh` after
+this feature lands fetches the new `compose.yaml` (goaccess starts passing
+`--html-custom-js=attribution.js`) but does **not** fetch `report/attribution.js` itself,
+because that fetch only exists in the *new* `update.sh`. Until a second `./update.sh` runs,
+the report links to a file that 404s and the CC-BY attribution is missing. The one-time
+migration below doubles as that second run.
+
+The dashboard resolves the **country** of each request — not the city, and not the
+provider. The `edge-geoip` container keeps a DB-IP Country Lite database in the
+`geoip-data` volume, checking daily and downloading a new one each month. GoAccess
+picks up a replaced database on its next 5-minute pass, with no restart.
+
+The database is licensed **CC-BY 4.0**, which requires the *IP Geolocation by DB-IP*
+link that `report/attribution.js` adds to the bottom of the report. Do not remove it.
+
+Client IPs are masked (`/24` IPv4, `/48` IPv6) before they are ever written, so a country
+is the most this can resolve — which is also why no city database is installed. VPN and
+cloud traffic resolves to the exit node, so a scanner in `eu-central-1` counts as Germany.
+
+`docker restart edge-geoip` only resumes the loop — useful if it is stuck in the hourly
+retry after a failed download, since restarting re-enters the loop immediately instead of
+waiting out the `sleep 3600`. It does **not** force a re-download: with a current `.stamp`,
+the loop's very first check on restart (`[ -f "$DB" ] && [ stamp = month ]`) is already true,
+so it just sleeps another 24 h without touching the network.
+
+To actually force a fresh download — e.g. to pick up a corrected release — delete the stamp
+first, so the loop's guard fails and it re-fetches:
+
+```bash
+docker exec edge-geoip rm -f /geoip/.stamp && docker restart edge-geoip
+```
+
+Then check the result:
+
+```bash
+docker logs --tail 20 edge-geoip
+```
+
+Give it a few seconds before trusting this — right after a restart it can still show the
+*previous* run's `geoip: installed YYYY-MM` line, which reads as success but predates the new
+attempt. A failed download leaves the previous database in place and retries hourly, and
+nothing alerts.
+
+**One-time migration when enabling geo.** GoAccess resolves countries at parse time, so
+records already aggregated in `goaccess-db` never gain one. Run this **once**, and never
+from `update.sh` — there it would discard the accumulated history on every deploy:
+
+```bash
+docker compose rm -sf goaccess && docker volume rm edge-caddy_goaccess-db && ./update.sh
+```
+
+`docker compose stop` is not enough — `docker volume rm` refuses a volume referenced by any
+container, including a stopped one. `rm -sf` stops **and removes** the container first, so the
+volume is actually free to drop.
+
+That re-parses the current `access.log` with geo. Data from already-rotated logs is gone
+as far as countries are concerned.
+
 Ad-hoc queries against the raw log. Caddy writes it as root with mode `0600`, so
 reading it needs `sudo` — e.g. the top 10 user agents:
 
