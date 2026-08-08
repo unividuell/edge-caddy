@@ -54,10 +54,65 @@ services:
       - ./report:/report
       - goaccess-db:/db
 
+  # Keeps the GeoIP country database current. It exists as its own container so that
+  # edge-goaccess — which parses untrusted request data — can stay on network_mode: none.
+  geoip:
+    image: alpine:3
+    container_name: edge-geoip
+    restart: unless-stopped
+    # No `networks:` on purpose: Compose's auto-created default bridge gives the egress
+    # this needs, and it has no business on `edge` beside the application containers.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        DB=/geoip/dbip-country-lite.mmdb
+        STAMP=/geoip/.stamp
+        while :; do
+          month=$$(date -u +%Y-%m)
+          if [ -f "$$DB" ] && [ "$$(cat "$$STAMP" 2>/dev/null)" = "$$month" ]; then
+            sleep 86400
+            continue
+          fi
+          # DB-IP publishes monthly. On the first days of a month the new file may not
+          # exist yet, so fall back to the previous month.
+          y=$$(date -u +%Y)
+          m=$$(date -u +%m)
+          pm=$$(( $${m#0} - 1 ))
+          py=$$y
+          if [ "$$pm" -eq 0 ]; then pm=12; py=$$(( y - 1 )); fi
+          prev=$$(printf '%s-%02d' "$$py" "$$pm")
+          installed=""
+          for cand in "$$month" "$$prev"; do
+            url="https://download.db-ip.com/free/dbip-country-lite-$$cand.mmdb.gz"
+            echo "geoip: trying $$cand"
+            if wget -q -O /geoip/.tmp.gz "$$url" \
+               && gunzip -f /geoip/.tmp.gz \
+               && mv /geoip/.tmp "$$DB"; then
+              printf '%s' "$$cand" > "$$STAMP"
+              installed=$$cand
+              echo "geoip: installed $$cand ($$(wc -c < "$$DB") bytes)"
+              break
+            fi
+          done
+          rm -f /geoip/.tmp.gz /geoip/.tmp
+          # The stamp records the month actually installed, not today's. Falling back to
+          # the previous month therefore leaves it behind the calendar, and the daily
+          # retry keeps going until the current month's file appears.
+          if [ -n "$$installed" ]; then
+            sleep 86400
+          else
+            echo "geoip: no database available, retrying in 1h"
+            sleep 3600
+          fi
+        done
+    volumes:
+      - geoip-data:/geoip
+
 volumes:
   caddy-data:
   caddy-config:
   goaccess-db:
+  geoip-data:
 
 networks:
   edge:
