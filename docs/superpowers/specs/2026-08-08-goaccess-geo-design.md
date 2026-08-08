@@ -20,7 +20,8 @@ noise of scanners, and it costs one database file.
   panel exists in the output but is empty.
 - The GoAccess container runs `network_mode: none` — deliberately, it only reads and writes
   files.
-- The access log masks client IPs to `ip_mask 24 48` (`Caddyfile`), i.e. IPv4 `/24`.
+- The access log masks client IPs to `ip_mask 24 48` (`Caddyfile`), i.e. IPv4 `/24` and
+  IPv6 `/48` — applied to both `remote_ip` and `client_ip`.
 - The GoAccess loop starts a **fresh** `goaccess` process every 300 s.
 
 ## Verified findings
@@ -205,10 +206,10 @@ is a plain URL and asks only for a link. GoAccess names it as a source in its ow
 
 **Country only, not city or ASN.** The city database is an order of magnitude larger, and
 GoAccess shows cities only inside the hosts panel, not as a panel of their own — while the
-`/24` masking makes city resolution unreliable anyway. ASN would be genuinely useful for
-separating cloud scanners from humans, but it is a second database for a question nobody has
-asked yet. Finding 9 confirms the panel is already there when it is wanted; adding it later
-is one flag.
+`/24` (IPv4) and `/48` (IPv6) masking makes city resolution unreliable anyway. ASN would be
+genuinely useful for separating cloud scanners from humans, but it is a second database for a
+question nobody has asked yet. Finding 9 confirms the panel is already there when it is
+wanted; adding it later is one flag.
 
 **A dedicated downloader container, not a step in `update.sh`.** A fetch in `update.sh` would
 be ~10 lines and no new service, but the database would then only ever be as fresh as the
@@ -240,10 +241,11 @@ public repo, for data that is freely fetchable, is the wrong use of git.
 
 ## Limitations (accepted)
 
-**Country attribution is approximate.** `/24` masking preserves the routing prefix, so
-country lookups are sound in the ordinary case, but a `/24` that straddles a border resolves
-to whichever country DB-IP assigns the network. VPN and cloud egress resolve to the exit
-node, not the user — a scanner running in `eu-central-1` counts as Germany.
+**Country attribution is approximate.** `/24` (IPv4) and `/48` (IPv6) masking preserves the
+routing prefix, so country lookups are sound in the ordinary case, but a masked block that
+straddles a border resolves to whichever country DB-IP assigns the network. VPN and cloud
+egress resolve to the exit node, not the user — a scanner running in `eu-central-1` counts as
+Germany.
 
 **The free database lags.** Monthly releases, and the loop tolerates being a month behind
 during the first days of a month. Country assignments change slowly enough that this does not
