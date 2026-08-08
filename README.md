@@ -104,6 +104,44 @@ It does **not** alert, and it has no latency percentiles — only average and ma
 Unique visitors are keyed on masked IP + user agent + day, so treat them as a
 trend, not a headcount.
 
+### Geo data
+
+The dashboard resolves the **country** of each request — not the city, and not the
+provider. The `edge-geoip` container keeps a DB-IP Country Lite database in the
+`geoip-data` volume, checking daily and downloading a new one each month. GoAccess
+picks up a replaced database on its next 5-minute pass, with no restart.
+
+The database is licensed **CC-BY 4.0**, which requires the *IP Geolocation by DB-IP*
+link that `report/attribution.js` adds to the bottom of the report. Do not remove it.
+
+Client IPs are masked to `/24` before they are ever written, so a country is the most
+this can resolve — which is also why no city database is installed. VPN and cloud
+traffic resolves to the exit node, so a scanner in `eu-central-1` counts as Germany.
+
+Force a refresh, e.g. after a failed download:
+
+```bash
+docker restart edge-geoip
+```
+
+Then watch it work — a failed download leaves the previous database in place and
+retries hourly, and nothing alerts:
+
+```bash
+docker logs --tail 20 edge-geoip
+```
+
+**One-time migration when enabling geo.** GoAccess resolves countries at parse time, so
+records already aggregated in `goaccess-db` never gain one. Run this **once**, and never
+from `update.sh` — there it would discard the accumulated history on every deploy:
+
+```bash
+docker compose stop goaccess && docker volume rm edge-caddy_goaccess-db && ./update.sh
+```
+
+That re-parses the current `access.log` with geo. Data from already-rotated logs is gone
+as far as countries are concerned.
+
 Ad-hoc queries against the raw log. Caddy writes it as root with mode `0600`, so
 reading it needs `sudo` — e.g. the top 10 user agents:
 
