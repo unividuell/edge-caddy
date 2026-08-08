@@ -626,12 +626,18 @@ git commit -m "docs: document geo resolution, its licence, and the one-time migr
 
 Not a task — this is what the operator runs on the server once the branch is merged.
 
-1. `./update.sh` — pulls `alpine:3`, creates the `geoip` service, fetches `attribution.js` into `report/`.
+1. `./update.sh` — pulls `alpine:3` and creates the `geoip` service. This first run does
+   **not** fetch `attribution.js`: `update.sh` replaces itself with `mv`, a rename, so the
+   shell already executing it finishes the *old* script to completion — which has no fetch
+   for a file it does not know exists yet. `attribution.js` only lands on a second run.
 2. `docker logs edge-geoip` — expect `geoip: installed YYYY-MM (…bytes)` within a minute.
 3. Wait one 5-minute pass, then confirm the *Geo Location* panel on `stats.unividuell.org` is populated.
-4. Run the one-time migration from the README's *Geo data* section so the existing
-   `access.log` is re-parsed with countries.
-5. Confirm the *IP Geolocation by DB-IP* link renders at the bottom of the report.
+4. Run the one-time migration from the README's *Geo data* section —
+   `docker compose rm -sf goaccess && docker volume rm edge-caddy_goaccess-db && ./update.sh`
+   — so the existing `access.log` is re-parsed with countries. This is also the second
+   `./update.sh` run, and the one that finally fetches `attribution.js` into `report/`.
+5. Confirm the *IP Geolocation by DB-IP* link renders at the bottom of the report — this
+   cannot resolve before step 4's second run.
 
 ## Spec verification coverage
 

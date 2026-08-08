@@ -106,6 +106,15 @@ trend, not a headcount.
 
 ### Geo data
 
+**Enabling this for the first time needs two `./update.sh` runs.** `update.sh` replaces
+itself with `mv`, which is a rename — the shell already running it keeps its file descriptor
+on the *old* inode and finishes executing the old script. So the first `./update.sh` after
+this feature lands fetches the new `compose.yaml` (goaccess starts passing
+`--html-custom-js=attribution.js`) but does **not** fetch `report/attribution.js` itself,
+because that fetch only exists in the *new* `update.sh`. Until a second `./update.sh` runs,
+the report links to a file that 404s and the CC-BY attribution is missing. The one-time
+migration below doubles as that second run.
+
 The dashboard resolves the **country** of each request — not the city, and not the
 provider. The `edge-geoip` container keeps a DB-IP Country Lite database in the
 `geoip-data` volume, checking daily and downloading a new one each month. GoAccess
