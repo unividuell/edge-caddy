@@ -274,7 +274,11 @@ run_once () {
 mkdir -p /db
 echo "  branch A: no database present"
 run_once || { echo "FAIL-A: goaccess did not produce a report without a database"; exit 1; }
-grep -q "\"geolocation\"" /report/.tmp.json || { echo "FAIL-A: no geolocation key at all"; exit 1; }
+# The point of branch A is that a database-less pass still renders, rather than dying the
+# way an unconditional --geoip-database would. Verified: GoAccess then omits the
+# geolocation key entirely, so asserting its presence here would be asserting the opposite.
+grep -q "\"general\"" /report/.tmp.json || { echo "FAIL-A: not a valid GoAccess report"; exit 1; }
+grep -q "\"geolocation\"" /report/.tmp.json && { echo "FAIL-A: geo resolved without a database?"; exit 1; }
 
 rm -rf /db && mkdir -p /db
 echo "  branch B: database present"
