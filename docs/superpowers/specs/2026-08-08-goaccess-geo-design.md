@@ -186,11 +186,15 @@ country. The volume is dropped once so the current `access.log` is re-parsed wit
 database in place:
 
 ```
-docker compose stop goaccess && docker volume rm edge-caddy_goaccess-db
+docker compose rm -sf goaccess && docker volume rm edge-caddy_goaccess-db && ./update.sh
 ```
 
-This must stay a manual, documented step. In `update.sh` it would discard the accumulated
-history on every single deploy.
+`docker compose stop` alone is not enough: `docker volume rm` refuses a volume referenced by
+any container, including a stopped one, so the chain would abort at the `docker volume rm`
+step and never reach `./update.sh` — leaving `goaccess` stopped. `rm -sf` stops **and
+removes** the container, and the trailing `./update.sh` is what brings `goaccess` back up and
+re-parses `access.log` with geo. This must stay a manual, documented step. In `update.sh` it
+would discard the accumulated history on every single deploy.
 
 ## Decisions and rationale
 

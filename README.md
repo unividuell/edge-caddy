@@ -136,8 +136,12 @@ records already aggregated in `goaccess-db` never gain one. Run this **once**, a
 from `update.sh` — there it would discard the accumulated history on every deploy:
 
 ```bash
-docker compose stop goaccess && docker volume rm edge-caddy_goaccess-db && ./update.sh
+docker compose rm -sf goaccess && docker volume rm edge-caddy_goaccess-db && ./update.sh
 ```
+
+`docker compose stop` is not enough — `docker volume rm` refuses a volume referenced by any
+container, including a stopped one. `rm -sf` stops **and removes** the container first, so the
+volume is actually free to drop.
 
 That re-parses the current `access.log` with geo. Data from already-rotated logs is gone
 as far as countries are concerned.
