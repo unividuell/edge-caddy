@@ -576,9 +576,9 @@ picks up a replaced database on its next 5-minute pass, with no restart.
 The database is licensed **CC-BY 4.0**, which requires the *IP Geolocation by DB-IP*
 link that `report/attribution.js` adds to the bottom of the report. Do not remove it.
 
-Client IPs are masked to `/24` before they are ever written, so a country is the most
-this can resolve — which is also why no city database is installed. VPN and cloud
-traffic resolves to the exit node, so a scanner in `eu-central-1` counts as Germany.
+Client IPs are masked (`/24` IPv4, `/48` IPv6) before they are ever written, so a country
+is the most this can resolve — which is also why no city database is installed. VPN and
+cloud traffic resolves to the exit node, so a scanner in `eu-central-1` counts as Germany.
 
 Force a refresh, e.g. after a failed download:
 
