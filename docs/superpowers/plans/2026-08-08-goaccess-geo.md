@@ -105,7 +105,7 @@ cat > /tmp/a.log <<LOG
 {"level":"info","ts":1754640000.1,"logger":"http.log.access","msg":"handled request","request":{"remote_ip":"8.8.8.0","remote_port":"1","client_ip":"8.8.8.0","proto":"HTTP/2.0","method":"GET","host":"x.org","uri":"/","headers":{"User-Agent":["Mozilla/5.0"]}},"bytes_read":0,"user_id":"","duration":0.01,"size":10,"status":200,"resp_headers":{}}
 LOG
 goaccess /tmp/a.log --log-format=CADDY --no-global-config --no-progress --geoip-database=/tmp/db -o json 2>/dev/null
-' < /tmp/geo.mmdb | grep -q '"United States"' \
+' < /tmp/geo.mmdb | grep -q 'US United States' \
   || { echo "FAIL: 8.8.8.0 did not resolve to United States"; exit 1; }
 
 echo "PASS"
