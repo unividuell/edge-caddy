@@ -50,6 +50,7 @@ services:
               --restore --persist \
               --real-os \
               $$GEO \
+              --html-custom-js=attribution.js \
               --html-report-title='unividuell edge' \
               -o /report/.tmp.html \
             && mv /report/.tmp.html /report/index.html

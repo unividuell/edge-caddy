@@ -81,6 +81,11 @@ done
 
 mkdir -p logs report
 
+# GoAccess references this as <script src='attribution.js'>, resolved against the report
+# URL — so it belongs next to index.html, not with the infra files above. report/ is
+# git-ignored, hence the fetch here rather than at the top with the others.
+curl -fsSL "$BASE/attribution.js" -o report/attribution.js
+
 docker network create edge 2>/dev/null || true
 docker compose --env-file .env -f compose.yaml pull
 
