@@ -79,7 +79,7 @@ for v in STATS_AUTH_HASH_2 STATS_AUTH_HASH_3; do
   check_hash "$v"
 done
 
-mkdir -p logs report
+mkdir -p logs report filetransfer
 
 # GoAccess references this as <script src='attribution.js'>, resolved against the report
 # URL — so it belongs next to index.html, not with the infra files above. report/ is

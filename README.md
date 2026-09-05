@@ -16,6 +16,7 @@ Server dir: **`/opt/unividuell/edge-caddy/`**. Images are pulled from Docker Hub
 | `mobility.unividuell.org` | `mobility-manager:8080` |
 | `news.zingler46.unividuell.org` | `comunio-news-app:8080` (basicauth) |
 | `stats.unividuell.org` | *(static GoAccess report, basicauth)* |
+| `files.unividuell.org` | *(static file transfer, open — the file name is the secret)* |
 
 ## Bootstrap (first time)
 ```bash
@@ -85,6 +86,46 @@ Re-fetches `compose.yaml`, `Caddyfile`, `README.md`, and itself from `main`, the
 2. Make sure the app's compose attaches that container to the external `edge` network with
    a stable `container_name` and **publishes no host ports**.
 3. Commit, then on the server `./update.sh`. Caddy obtains the cert on first request.
+
+## Filetransfer
+
+`https://files.unividuell.org/<name>` serves whatever sits in `filetransfer/` on the server,
+next to `report/`, with no authentication at all. **The file name is the only secret.**
+Nothing lists what is there: `file_server` runs without `browse`, so `/` and every
+subdirectory answer 404, and a wrong name is indistinguishable from an empty server.
+`update.sh` creates the directory; the mount is `:ro`, so Caddy only serves and there is no
+upload endpoint — files arrive over `scp`.
+
+```bash
+scp bericht.pdf oci.unividuell.org:/opt/unividuell/edge-caddy/filetransfer/bericht-$(openssl rand -hex 12).pdf
+```
+
+The random suffix is not decoration. Nothing rate-limits or locks out this host, so a
+guessable name (`bericht.pdf`, `rechnung.pdf`) is found by the first scanner that works
+through a wordlist. Twelve random bytes are not reachable that way; a plain word is. Names
+are case-sensitive — `Bericht.pdf` and `bericht.pdf` are different URLs.
+
+Every response, including the 404s, carries `X-Robots-Tag: noindex, nofollow, noarchive`.
+That, not a `robots.txt`, is what keeps a leaked URL out of a search index: `Disallow: /`
+only stops the crawl, so a URL discovered elsewhere is still indexed and the crawler never
+reads the noindex it would have been sent. `Referrer-Policy: no-referrer` keeps the secret
+URL out of the `Referer` header if a served HTML file links onwards.
+
+Two things follow from a secret being a URL rather than a credential:
+
+- **Paste the link into a chat and third parties fetch it.** Slack, WhatsApp, Signal and
+  the rest generate previews by requesting the URL from their own servers, so the secret
+  is spent the moment it is shared. That is inherent to the design, not a bug in it.
+- **Requested paths land in `logs/access.log`**, and `edge-goaccess` renders them into the
+  `stats.unividuell.org` dashboard — so shared file names appear there in clear text and
+  survive in the `goaccess-db` volume after the file is gone. The dashboard is behind basic
+  auth. If that stops being acceptable, drop `log access` from the site block.
+
+Deleting the file is the only way to revoke a link; there is no expiry and no download limit:
+
+```bash
+ssh oci.unividuell.org 'rm /opt/unividuell/edge-caddy/filetransfer/<name>'
+```
 
 ## Monitoring
 

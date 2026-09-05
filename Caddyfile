@@ -64,3 +64,19 @@ stats.unividuell.org {
 	root * /srv/report
 	file_server
 }
+
+# open file transfer (static files; the file NAME is the secret)
+# No basicauth on purpose. Nothing here advertises what exists: file_server without
+# `browse` answers a directory with 404, so `/` leaks nothing. X-Robots-Tag rather than
+# a robots.txt Disallow — a Disallow only stops the crawl, so a URL found elsewhere is
+# still indexed and the crawler never reads the noindex it would have been sent.
+files.unividuell.org {
+	log access
+	header {
+		X-Robots-Tag "noindex, nofollow, noarchive"
+		# a served HTML file must not carry the secret URL out in a Referer
+		Referrer-Policy no-referrer
+	}
+	root * /srv/filetransfer
+	file_server
+}
