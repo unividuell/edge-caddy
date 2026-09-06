@@ -43,8 +43,16 @@ mobility.unividuell.org {
 }
 
 # comunio-news (basicauth at the edge)
+# PARKED: the Cloudflare A record is gone. The app is unfinished and its only visitors were
+# vulnerability scanners — 24k requests, every one of them answered 401 here, which made it
+# the busiest host in the stats dashboard. `tls internal` issues the cert from Caddy's local
+# CA instead of Let's Encrypt: without it every renewal from ~2026-10-10 would fail on
+# NXDOMAIN (both HTTP-01 and TLS-ALPN-01 need a resolving name) and fill system.log with
+# errors for a site nobody can reach. The block stays so `caddy validate` keeps checking it.
+# To revive: drop the `tls internal` line and re-create the A record.
 news.zingler46.unividuell.org {
 	log access
+	tls internal
 	basic_auth {
 		{$NEWS_AUTH_USER_1} {$NEWS_AUTH_HASH}
 		{$NEWS_AUTH_USER_2} {$NEWS_AUTH_HASH}
