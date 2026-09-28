@@ -141,11 +141,13 @@ The page is meant for friends, not for search engines: every response carries th
 there. Link previews in chat apps are unaffected; they do not honour robots directives.
 
 `update.sh` creates the directory; the mount is `:ro`, and the files arrive over `scp` — they
-are not part of this repo. The page loads its images by relative URL, so they sit next to it.
-`preview.jpg` is the link-preview image its Open Graph tags point to, by absolute URL:
+are not part of this repo. The page loads its images and its fonts by relative URL, so they sit
+next to it. `preview.jpg` is the link-preview image its Open Graph tags point to, by absolute
+URL. `fonts/` holds the web fonts (SIL OFL, licence texts alongside): serving them from here
+rather than from Google Fonts keeps visitors' IPs away from Google.
 
 ```bash
-scp showcase.html spectrogram-run3.jpg vespa-mount.jpg preview.jpg oci.unividuell.org:/opt/unividuell/edge-caddy/prueffahrt/
+scp -r showcase.html spectrogram-run3.jpg vespa-mount.jpg preview.jpg fonts oci.unividuell.org:/opt/unividuell/edge-caddy/prueffahrt/
 ```
 
 A new version is live as soon as the copy finishes; Caddy needs no reload for content changes.
