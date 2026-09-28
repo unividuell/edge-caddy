@@ -88,3 +88,14 @@ files.unividuell.org {
 	root * /srv/filetransfer
 	file_server
 }
+
+# Prüffahrt showcase (static page; files arrive over scp)
+# `/` has no page of its own and redirects to the showcase. `redir` defaults to a temporary
+# 302 on purpose: browsers cache a 301 indefinitely, so a permanent redirect would outlive
+# any later change to what `/` serves.
+prueffahrt.unividuell.org {
+	log access
+	redir / /showcase.html
+	root * /srv/prueffahrt
+	file_server
+}

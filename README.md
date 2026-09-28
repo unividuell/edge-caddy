@@ -17,6 +17,7 @@ Server dir: **`/opt/unividuell/edge-caddy/`**. Images are pulled from Docker Hub
 | `news.zingler46.unividuell.org` | `comunio-news-app:8080` (basicauth) |
 | `stats.unividuell.org` | *(static GoAccess report, basicauth)* |
 | `files.unividuell.org` | *(static file transfer, open — the file name is the secret)* |
+| `prueffahrt.unividuell.org` | *(static Prüffahrt showcase, open — `/` redirects to `/showcase.html`)* |
 
 ## Bootstrap (first time)
 ```bash
@@ -127,6 +128,23 @@ Deleting the file is the only way to revoke a link; there is no expiry and no do
 ssh oci.unividuell.org 'rm /opt/unividuell/edge-caddy/filetransfer/<name>'
 ```
 
+## Prüffahrt showcase
+
+`https://prueffahrt.unividuell.org` serves whatever sits in `prueffahrt/` on the server, next
+to `filetransfer/`, with no authentication. The page is `showcase.html`, built in the
+prueffahrt project; `/` has no page of its own and answers with a redirect there. It is a
+temporary 302 on purpose: browsers cache a 301 indefinitely, so a permanent redirect would
+outlive any later change to what `/` serves.
+
+`update.sh` creates the directory; the mount is `:ro`, and the files arrive over `scp` — they
+are not part of this repo. The page loads its images by relative URL, so they sit next to it:
+
+```bash
+scp showcase.html spectrogram-run3.jpg vespa-mount.jpg oci.unividuell.org:/opt/unividuell/edge-caddy/prueffahrt/
+```
+
+A new version is live as soon as the copy finishes; Caddy needs no reload for content changes.
+
 ## Monitoring
 
 Every site writes one JSON access log, `logs/access.log`, with client IPs masked
@@ -229,4 +247,5 @@ sudo jq -r '[.duration, .status, .request.host, .request.uri] | @tsv' logs/acces
 ## Certs
 Caddy stores certs/ACME state in the `caddy-data` volume. A fresh volume triggers
 Let's Encrypt issuance for every domain on first request — well within rate limits for
-five domains. DNS for each domain must already point at this host and 80/443 must be open.
+the handful of domains here. DNS for each domain must already point at this host and
+80/443 must be open.
