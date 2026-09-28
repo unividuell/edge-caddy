@@ -141,10 +141,11 @@ The page is meant for friends, not for search engines: every response carries th
 there. Link previews in chat apps are unaffected; they do not honour robots directives.
 
 `update.sh` creates the directory; the mount is `:ro`, and the files arrive over `scp` — they
-are not part of this repo. The page loads its images by relative URL, so they sit next to it:
+are not part of this repo. The page loads its images by relative URL, so they sit next to it.
+`preview.jpg` is the link-preview image its Open Graph tags point to, by absolute URL:
 
 ```bash
-scp showcase.html spectrogram-run3.jpg vespa-mount.jpg oci.unividuell.org:/opt/unividuell/edge-caddy/prueffahrt/
+scp showcase.html spectrogram-run3.jpg vespa-mount.jpg preview.jpg oci.unividuell.org:/opt/unividuell/edge-caddy/prueffahrt/
 ```
 
 A new version is live as soon as the copy finishes; Caddy needs no reload for content changes.
