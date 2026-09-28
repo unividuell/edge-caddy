@@ -92,9 +92,12 @@ files.unividuell.org {
 # Prüffahrt showcase (static page; files arrive over scp)
 # `/` has no page of its own and redirects to the showcase. `redir` defaults to a temporary
 # 302 on purpose: browsers cache a 301 indefinitely, so a permanent redirect would outlive
-# any later change to what `/` serves.
+# any later change to what `/` serves. The page is for friends, not for search engines;
+# X-Robots-Tag for the same reason as on files.unividuell.org (a robots.txt Disallow would
+# not keep a link found elsewhere out of an index).
 prueffahrt.unividuell.org {
 	log access
+	header X-Robots-Tag "noindex, nofollow, noarchive"
 	redir / /showcase.html
 	root * /srv/prueffahrt
 	file_server

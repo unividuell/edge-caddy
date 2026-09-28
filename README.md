@@ -136,6 +136,10 @@ prueffahrt project; `/` has no page of its own and answers with a redirect there
 temporary 302 on purpose: browsers cache a 301 indefinitely, so a permanent redirect would
 outlive any later change to what `/` serves.
 
+The page is meant for friends, not for search engines: every response carries the same
+`X-Robots-Tag: noindex, nofollow, noarchive` as the filetransfer site, for the reason given
+there. Link previews in chat apps are unaffected; they do not honour robots directives.
+
 `update.sh` creates the directory; the mount is `:ro`, and the files arrive over `scp` — they
 are not part of this repo. The page loads its images by relative URL, so they sit next to it:
 
