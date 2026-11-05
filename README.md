@@ -18,6 +18,7 @@ Server dir: **`/opt/unividuell/edge-caddy/`**. Images are pulled from Docker Hub
 | `stats.unividuell.org` | *(static GoAccess report, basicauth)* |
 | `files.unividuell.org` | *(static file transfer, open — the file name is the secret)* |
 | `prueffahrt.unividuell.org` | *(static Prüffahrt showcase, open — `/` redirects to `/showcase.html`)* |
+| `monitoring.unividuell.org` | `edge-lgtm:3000` (Grafana, basicauth) |
 
 ## Bootstrap (first time)
 ```bash
@@ -36,6 +37,8 @@ curl -fsSL https://raw.githubusercontent.com/unividuell/edge-caddy/main/update.s
 | `NEWS_AUTH_HASH` | bcrypt hash shared by both news users |
 | `STATS_AUTH_USER_1`, `STATS_AUTH_HASH_1` | first dashboard user (required) |
 | `STATS_AUTH_USER_2/3`, `STATS_AUTH_HASH_2/3` | further dashboard users (optional) |
+| `MONITORING_AUTH_USER_1`, `MONITORING_AUTH_HASH_1` | Grafana user at `monitoring.unividuell.org` (required) |
+| `COUNTDOWN_DB_MONITOR_PASSWORD` | countdown's read-only `monitor` role, both stacks (required) |
 
 ```bash
 docker run --rm caddy:2-alpine caddy hash-password --plaintext '<password>'
@@ -256,3 +259,79 @@ Caddy stores certs/ACME state in the `caddy-data` volume. A fresh volume trigger
 Let's Encrypt issuance for every domain on first request — well within rate limits for
 the handful of domains here. DNS for each domain must already point at this host and
 80/443 must be open.
+
+## Metrics, logs and traces (`edge-lgtm`)
+
+One [`grafana/otel-lgtm`](https://github.com/grafana/docker-otel-lgtm) container for every
+project: an OpenTelemetry Collector, Prometheus, Loki, Tempo and Grafana in one image.
+Grafana is at `https://monitoring.unividuell.org`, behind basic auth; inside, it runs
+anonymous with admin rights.
+
+```
+apps ── OTLP (metrics, traces) ── monitoring network ──┐
+docker json-file logs (every container) ── ro mount ───┼──> collector ──> Prometheus / Loki / Tempo ──> Grafana
+logs/access.log (this edge) ───────────────────────────┤
+host CPU / RAM / disk / load ──────────────────────────┤
+project databases (role `monitor`) ── monitoring network ┘
+```
+
+Our collector config is `monitoring/otelcol-config.yaml`; it replaces the image's own.
+Dashboards are `monitoring/dashboards/*.json` (`countdown`, `server`), provisioned at start —
+edits in the Grafana UI do not survive a restart. A new dashboard also needs its line in
+`update.sh`. Data lives in the `lgtm-data` volume and is kept for 30 days (Prometheus also
+caps at 5 GB). Nothing in there needs a backup.
+
+**Labels.** Everything carries `service_namespace` (the project), `service_name` and
+`deployment_environment_name`. For container logs they come from the compose labels: the
+project `countdown-staging` becomes namespace `countdown`, environment `staging`; every other
+project is `production`. Apps sending OTLP must set the same values themselves.
+
+### One-time setup
+
+1. **DNS**: an A record `monitoring.unividuell.org` → the server.
+2. **`.env`**: add `MONITORING_AUTH_USER_1` / `MONITORING_AUTH_HASH_1` (hash rules as above)
+   and `COUNTDOWN_DB_MONITOR_PASSWORD` (`openssl rand -hex 24`; no `$`).
+3. **Docker daemon** — `/etc/docker/daemon.json`:
+   ```json
+   {
+     "log-driver": "json-file",
+     "log-opts": {
+       "max-size": "10m",
+       "max-file": "3",
+       "labels": "com.docker.compose.project,com.docker.compose.service"
+     }
+   }
+   ```
+   `labels` writes project and service into every log line — without it a line arrives
+   but belongs to no project. `max-size`/`max-file` rotate the logs, which `json-file`
+   otherwise never does. Then `sudo systemctl restart docker`: **every container restarts**.
+   The options apply only to containers created afterwards, so recreate each stack once
+   (`docker compose … up -d --force-recreate`, or its `update.sh` after a change).
+   `update.sh` warns while the default driver is not `json-file`.
+4. **Deploy with the new `update.sh`.** The running script cannot pick up its own
+   replacement (see *Geo data*), and only the new one fetches `monitoring/` and creates the
+   `monitoring` network:
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/unividuell/edge-caddy/main/update.sh -o update.sh && ./update.sh
+   ```
+
+### Connecting a project
+
+- **Logs**: nothing to do; every container's stdout is read. Spring apps should log ECS
+  JSON (`logging.structured.format.console: ecs`): the collector unpacks level, logger,
+  trace id and stack trace from it. Other formats arrive as plain text.
+- **Metrics and traces**: the sending container joins the external network `monitoring`
+  and exports OTLP to `http://edge-lgtm:4318`, with resource attributes `service.namespace`
+  and `deployment.environment.name` set as above.
+- **Database**: the project creates a read-only login role `monitor` with `pg_monitor`
+  (statistics, no table rows) and puts its postgres, under a fixed `container_name`, on the
+  `monitoring` network. Here: one `postgresql/<stack>` receiver per stack plus a
+  `resource/<stack>-db` processor and a pipeline in `monitoring/otelcol-config.yaml`, the
+  password in `.env`, passed through in `compose.yaml`. countdown is the example.
+  Until the project side is deployed the receiver logs `no such host`; harmless.
+
+### Updating the image
+
+The tag is pinned in `compose.yaml`. Before raising it, diff our collector config against
+the new image's (header of `monitoring/otelcol-config.yaml`). The image is 0.x: if the new
+version cannot read the old data, `docker volume rm edge-caddy_lgtm-data` and start empty.

@@ -8,6 +8,14 @@ curl -fsSL "$BASE/Caddyfile"    -o Caddyfile
 curl -fsSL "$BASE/README.md"    -o README.md
 curl -fsSL "$BASE/update.sh"    -o update.sh.new && chmod +x update.sh.new && mv update.sh.new update.sh
 
+# Monitoring stack config (edge-lgtm). A new dashboard needs its own line here.
+mkdir -p monitoring/dashboards
+curl -fsSL "$BASE/monitoring/otelcol-config.yaml"    -o monitoring/otelcol-config.yaml
+curl -fsSL "$BASE/monitoring/grafana-dashboards.yaml" -o monitoring/grafana-dashboards.yaml
+for d in countdown server; do
+  curl -fsSL "$BASE/monitoring/dashboards/$d.json" -o "monitoring/dashboards/$d.json"
+done
+
 if [ ! -f .env ]; then
   curl -fsSL "$BASE/.env.example" -o .env
   echo ".env created from template — fill in the values in .env, then re-run ./update.sh"
@@ -30,9 +38,9 @@ exactly 60 characters. Generate one with:
 HELP
 }
 
-# Required usernames: present and non-empty (quotes, if any, do not count as content).
+# Required usernames and passwords: present and non-empty (quotes, if any, do not count as content).
 missing=""
-for v in NEWS_AUTH_USER_1 NEWS_AUTH_USER_2 STATS_AUTH_USER_1; do
+for v in NEWS_AUTH_USER_1 NEWS_AUTH_USER_2 STATS_AUTH_USER_1 MONITORING_AUTH_USER_1 COUNTDOWN_DB_MONITOR_PASSWORD; do
   val=$(grep -E "^${v}=" .env | tail -1 | cut -d= -f2-)
   val=$(printf '%s' "$val" | sed "s/^['\"]//; s/['\"]\$//")
   [ -n "$val" ] || missing="$missing $v"
@@ -64,7 +72,7 @@ check_hash () {
   fi
 }
 
-for v in NEWS_AUTH_HASH STATS_AUTH_HASH_1; do
+for v in NEWS_AUTH_HASH STATS_AUTH_HASH_1 MONITORING_AUTH_HASH_1; do
   check_hash "$v"
 done
 
@@ -87,6 +95,13 @@ mkdir -p logs report filetransfer prueffahrt
 curl -fsSL "$BASE/attribution.js" -o report/attribution.js
 
 docker network create edge 2>/dev/null || true
+docker network create monitoring 2>/dev/null || true
+
+# edge-lgtm reads docker's json-file logs; another driver leaves the log panels empty
+# without any error. Warn only: the edge itself works either way.
+if [ "$(docker info --format '{{.LoggingDriver}}')" != "json-file" ]; then
+  echo "WARNING: docker's default log driver is not json-file — container logs will not reach monitoring (README, \"Monitoring\")." >&2
+fi
 docker compose --env-file .env -f compose.yaml pull
 
 # Last gate before anything is recreated: adapt the real, bind-mounted Caddyfile with the
@@ -105,5 +120,7 @@ docker compose --env-file .env -f compose.yaml up -d
 # The Caddyfile is bind-mounted; `up -d` does NOT recreate the container on a config-only
 # change, so reload Caddy explicitly to pick up Caddyfile edits (new sites/routes).
 docker compose --env-file .env -f compose.yaml exec -T caddy caddy reload --config /etc/caddy/Caddyfile
+# Same for edge-lgtm: its collector reads the bind-mounted config only at start.
+docker compose --env-file .env -f compose.yaml restart lgtm
 docker image prune -f
 echo "Edge update complete."

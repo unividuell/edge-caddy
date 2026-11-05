@@ -15,6 +15,8 @@ services:
       - NEWS_AUTH_HASH=${NEWS_AUTH_HASH}
       - STATS_AUTH_USER_1=${STATS_AUTH_USER_1}
       - STATS_AUTH_HASH_1=${STATS_AUTH_HASH_1}
+      - MONITORING_AUTH_USER_1=${MONITORING_AUTH_USER_1}
+      - MONITORING_AUTH_HASH_1=${MONITORING_AUTH_HASH_1}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - ./logs:/var/log/caddy
@@ -127,12 +129,46 @@ services:
     volumes:
       - geoip-data:/geoip
 
+  # Metrics, logs and traces for every project: grafana/otel-lgtm bundles an OpenTelemetry
+  # Collector, Prometheus, Loki, Tempo and Grafana in one container. Apps send OTLP to
+  # http://edge-lgtm:4318 over the `monitoring` network; container logs are read from
+  # docker's log files. Grafana is served at monitoring.unividuell.org behind basic_auth.
+  lgtm:
+    # Pinned: 0.x, a bump can change the data layout. Diff monitoring/otelcol-config.yaml
+    # against the new image's copy first (see the file's header).
+    image: grafana/otel-lgtm:0.22.1
+    container_name: edge-lgtm
+    restart: unless-stopped
+    mem_limit: 2g
+    environment:
+      # Caddy's basic_auth is the only gate; inside it Grafana keeps its anonymous admin.
+      - GF_SERVER_ROOT_URL=https://monitoring.unividuell.org
+      # 30 days, then deleted. Without these Loki keeps everything and the disk fills up.
+      - PROMETHEUS_EXTRA_ARGS=--storage.tsdb.retention.time=30d --storage.tsdb.retention.size=5GB
+      - LOKI_EXTRA_ARGS=-compactor.retention-enabled -compactor.delete-request-store=filesystem -store.retention=720h
+      # Login of countdown's read-only `monitor` role (both stacks), see monitoring/otelcol-config.yaml.
+      - COUNTDOWN_DB_MONITOR_PASSWORD=${COUNTDOWN_DB_MONITOR_PASSWORD}
+    volumes:
+      - ./monitoring/otelcol-config.yaml:/otel-lgtm/otelcol-config.yaml:ro
+      - ./monitoring/grafana-dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/unividuell.yaml:ro
+      - ./monitoring/dashboards:/otel-lgtm/unividuell-dashboards:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./logs:/caddy-logs:ro
+      - lgtm-data:/data
+    networks:
+      - edge
+      - monitoring
+
 volumes:
   caddy-data:
   caddy-config:
   goaccess-db:
   geoip-data:
+  lgtm-data:
 
 networks:
   edge:
+    external: true
+  # Apps' private services (core, postgres) join this instead of `edge` to reach edge-lgtm.
+  monitoring:
     external: true
