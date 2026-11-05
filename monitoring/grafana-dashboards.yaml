@@ -1,0 +1,8 @@
+# unividuell: every JSON file in monitoring/dashboards/ becomes a Grafana dashboard.
+# Edits made in the Grafana UI do not survive a restart: change the file instead.
+apiVersion: 1
+providers:
+  - name: unividuell
+    type: file
+    options:
+      path: /otel-lgtm/unividuell-dashboards

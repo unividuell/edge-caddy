@@ -1,0 +1,229 @@
+# OpenTelemetry Collector inside grafana/otel-lgtm. Replaces the image's own
+# /otel-lgtm/otelcol-config.yaml — its receivers, exporters and pipelines are copied here
+# unchanged (otel-lgtm 0.22.1); everything marked "unividuell" is ours. Diff against the
+# image's file on every version bump:
+#   docker run --rm --entrypoint cat grafana/otel-lgtm:<tag> /otel-lgtm/otelcol-config.yaml
+#
+#   apps (OTLP) ──────────────┐
+#   docker json-file logs ────┼──> collector ──> Prometheus / Loki / Tempo ──> Grafana
+#   caddy access.log ─────────┤
+#   host CPU / RAM / disk ────┤
+#   project databases ────────┘
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+        cors:
+          allowed_origins:
+            - http://*
+  prometheus/collector:
+    config:
+      scrape_configs:
+        - job_name: "opentelemetry-collector"
+          scrape_interval: 1s
+          static_configs:
+            - targets: ["127.0.0.1:8888"]
+
+  # unividuell: every container's stdout/stderr. Docker writes one JSON object per line:
+  #   {"log":"…\n","stream":"stdout","time":"…","attrs":{"com.docker.compose.project":"countdown",…}}
+  # `attrs` exists only with the daemon's log-opts "labels" (README, "Monitoring").
+  # Without it a line still arrives, just without project and service.
+  filelog/docker:
+    include: [/var/lib/docker/containers/*/*-json.log]
+    # With file_storage the read offset survives restarts: nothing lost, nothing twice.
+    start_at: end
+    storage: file_storage
+    operators:
+      - type: json_parser
+        timestamp:
+          parse_from: attributes.time
+          layout_type: gotime
+          layout: "2006-01-02T15:04:05.999999999Z07:00"
+      - type: move
+        from: attributes.log
+        to: body
+      - type: move
+        if: 'attributes.attrs != nil and attributes.attrs["com.docker.compose.service"] != nil'
+        from: attributes.attrs["com.docker.compose.service"]
+        to: resource["service.name"]
+      # Project `countdown-staging` -> namespace `countdown`, environment `staging`;
+      # any other project -> environment `production`. Same keys the apps send via OTLP.
+      - type: move
+        if: 'attributes.attrs != nil and attributes.attrs["com.docker.compose.project"] != nil'
+        from: attributes.attrs["com.docker.compose.project"]
+        to: resource["service.namespace"]
+      - type: add
+        if: 'resource["service.namespace"] != nil'
+        field: resource["deployment.environment.name"]
+        value: 'EXPR(resource["service.namespace"] endsWith "-staging" ? "staging" : "production")'
+      - type: add
+        if: 'resource["service.namespace"] != nil'
+        field: resource["service.namespace"]
+        value: 'EXPR(trimSuffix(resource["service.namespace"], "-staging"))'
+      - type: remove
+        field: attributes.attrs
+      - type: remove
+        field: attributes.time
+
+  # unividuell: the edge's access log (JSON, IPs already masked by the Caddyfile).
+  filelog/caddy:
+    include: [/caddy-logs/access.log]
+    start_at: end
+    storage: file_storage
+    resource:
+      service.namespace: edge-caddy
+      service.name: access-log
+      deployment.environment.name: production
+
+  # unividuell: the host. Inside a container /proc already shows host-wide CPU, memory and
+  # load, so no host mounts are needed. The container's own `/` is an overlay; the disk
+  # docker writes to shows up through its bind mounts, hence the filter by fs type.
+  hostmetrics:
+    collection_interval: 30s
+    scrapers:
+      cpu:
+        metrics:
+          system.cpu.utilization:
+            enabled: true
+      memory:
+        metrics:
+          system.memory.utilization:
+            enabled: true
+      load:
+      filesystem:
+        include_fs_types:
+          match_type: strict
+          fs_types: [ext4, xfs, btrfs]
+        metrics:
+          system.filesystem.utilization:
+            enabled: true
+
+  # unividuell: each project's database, as role `monitor` (pg_monitor: statistics, no rows).
+  # countdown creates the role itself (deploy/compose.yaml, db-monitor-role); both stacks share
+  # one password. One receiver per stack, because the resource labels below differ.
+  postgresql/countdown:
+    endpoint: countdown-postgres:5432
+    username: monitor
+    password: ${env:COUNTDOWN_DB_MONITOR_PASSWORD}
+    databases: [app]
+    collection_interval: 60s
+    tls:
+      insecure: true
+  postgresql/countdown-staging:
+    endpoint: countdown-staging-postgres:5432
+    username: monitor
+    password: ${env:COUNTDOWN_DB_MONITOR_PASSWORD}
+    databases: [app]
+    collection_interval: 60s
+    tls:
+      insecure: true
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+    path: "/ready"
+  # unividuell: filelog read offsets, on the persistent /data volume.
+  file_storage:
+    directory: /data/otelcol
+    create_directory: true
+
+processors:
+  batch:
+
+  # unividuell: Spring apps log ECS JSON on the server (countdown's application-production.yaml).
+  # Unpack it, so Loki sees level, message, logger and trace id instead of a JSON string.
+  transform/ecs:
+    error_mode: ignore
+    log_statements:
+      - statements:
+          - replace_pattern(log.body, "\\n$", "") where IsString(log.body)
+      - conditions:
+          - IsString(log.body) and IsMatch(log.body, "^\\{\"@timestamp\"")
+        statements:
+          - merge_maps(log.cache, ParseJSON(log.body), "upsert")
+          - set(log.severity_text, log.cache["log"]["level"])
+          - set(log.attributes["logger"], log.cache["log"]["logger"])
+          - set(log.trace_id.string, log.cache["traceId"]) where log.cache["traceId"] != nil
+          - set(log.span_id.string, log.cache["spanId"]) where log.cache["spanId"] != nil
+          - set(log.body, log.cache["message"])
+          - set(log.body, Concat([log.body, log.cache["error"]["stack_trace"]], "\n")) where log.cache["error"]["stack_trace"] != nil
+
+  # unividuell: hostmetrics carry no service; give the host one so it is findable.
+  resource/host:
+    attributes:
+      - key: service.name
+        value: host
+        action: upsert
+
+  # unividuell: the same labels the apps send, so a project's dashboard finds its database.
+  resource/countdown-db:
+    attributes:
+      - { key: service.namespace, value: countdown, action: upsert }
+      - { key: service.name, value: postgres, action: upsert }
+      - { key: deployment.environment.name, value: production, action: upsert }
+  resource/countdown-staging-db:
+    attributes:
+      - { key: service.namespace, value: countdown, action: upsert }
+      - { key: service.name, value: postgres, action: upsert }
+      - { key: deployment.environment.name, value: staging, action: upsert }
+
+exporters:
+  otlphttp/metrics:
+    endpoint: http://127.0.0.1:9090/api/v1/otlp
+    tls:
+      insecure: true
+  otlphttp/traces:
+    endpoint: http://127.0.0.1:4418
+    tls:
+      insecure: true
+  otlphttp/logs:
+    endpoint: http://127.0.0.1:3100/otlp
+    tls:
+      insecure: true
+  otlp/profiles:
+    endpoint: http://127.0.0.1:4040
+    tls:
+      insecure: true
+
+service:
+  extensions: [health_check, file_storage]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/traces]
+    metrics:
+      receivers: [otlp, prometheus/collector]
+      processors: [batch]
+      exporters: [otlphttp/metrics]
+    # unividuell
+    metrics/host:
+      receivers: [hostmetrics]
+      processors: [resource/host, batch]
+      exporters: [otlphttp/metrics]
+    # unividuell
+    metrics/countdown-db:
+      receivers: [postgresql/countdown]
+      processors: [resource/countdown-db, batch]
+      exporters: [otlphttp/metrics]
+    # unividuell
+    metrics/countdown-staging-db:
+      receivers: [postgresql/countdown-staging]
+      processors: [resource/countdown-staging-db, batch]
+      exporters: [otlphttp/metrics]
+    logs:
+      receivers: [otlp, filelog/caddy]
+      processors: [batch]
+      exporters: [otlphttp/logs]
+    # unividuell
+    logs/docker:
+      receivers: [filelog/docker]
+      processors: [transform/ecs, batch]
+      exporters: [otlphttp/logs]
+    profiles:
+      receivers: [otlp]
+      exporters: [otlp/profiles]

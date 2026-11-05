@@ -27,4 +27,10 @@ default; Spring needs `server.forward-headers-strategy=framework`.
   `caddy adapt` of a `basic_auth` block with an empty hash *fails*. When validating locally,
   pass a real-looking value: `docker run --rm -i -e 'BASIC_AUTH_HASH=$2a$14$...' caddy:2-alpine …`.
 
+**Monitoring** (`edge-lgtm`, README "Metrics, logs and traces"): container logs are read from
+docker's json-file logs, so a project only has to log to stdout — ECS JSON for Spring apps.
+OTLP senders join the external network **`monitoring`** (not `edge`, so private services such
+as core or postgres can report without becoming reachable from the edge) and set
+`service.namespace` = project, `deployment.environment.name` = `production`/`staging`.
+
 Server layout: all projects live under `/opt/unividuell/<project>/`.
