@@ -276,7 +276,7 @@ project databases (role `monitor`) ── monitoring network ┘
 ```
 
 Our collector config is `monitoring/otelcol-config.yaml`; it replaces the image's own.
-Dashboards are `monitoring/dashboards/*.json` (`countdown`, `server`), provisioned at start —
+Dashboards are `monitoring/dashboards/*.json` (`countdown`, `mobility-manager`, `server`), provisioned at start —
 edits in the Grafana UI do not survive a restart. A new dashboard also needs its line in
 `update.sh`. Data lives in the `lgtm-data` volume and is kept for 30 days (Prometheus also
 caps at 5 GB). Nothing in there needs a backup.
