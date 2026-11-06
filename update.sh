@@ -12,7 +12,7 @@ curl -fsSL "$BASE/update.sh"    -o update.sh.new && chmod +x update.sh.new && mv
 mkdir -p monitoring/dashboards
 curl -fsSL "$BASE/monitoring/otelcol-config.yaml"    -o monitoring/otelcol-config.yaml
 curl -fsSL "$BASE/monitoring/grafana-dashboards.yaml" -o monitoring/grafana-dashboards.yaml
-for d in countdown server; do
+for d in countdown mobility-manager server; do
   curl -fsSL "$BASE/monitoring/dashboards/$d.json" -o "monitoring/dashboards/$d.json"
 done
 
