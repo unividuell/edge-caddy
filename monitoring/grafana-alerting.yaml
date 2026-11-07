@@ -1,0 +1,251 @@
+# unividuell: Grafana alerting — rules, the mail contact point and the routing.
+# Mail goes out via Gmail SMTP (GF_SMTP_* in compose.yaml), from and to ALERT_SMTP_USER.
+# Only production alerts; staging and local stay quiet. Like the dashboards, edits made
+# in the Grafana UI do not survive a restart: change this file instead.
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: email
+    receivers:
+      - uid: email
+        type: email
+        settings:
+          addresses: $ALERT_SMTP_USER
+          singleEmail: true
+
+policies:
+  - orgId: 1
+    receiver: email
+    group_by: [grafana_folder, alertname]
+    group_wait: 30s
+    group_interval: 5m
+    # A still-firing alert mails again after this long.
+    repeat_interval: 12h
+
+groups:
+  - orgId: 1
+    name: unividuell
+    folder: unividuell
+    interval: 1m
+    rules:
+      # Any 5xx answer of a Spring app.
+      - uid: server-errors
+        title: 5xx-Antworten
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: Error
+        labels: {}
+        annotations:
+          summary: '{{ $labels.service_namespace }}: {{ $values.A.Value }} 5xx-Antworten in 5 min'
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: {from: 300, to: 0}
+            model:
+              refId: A
+              instant: true
+              expr: sum by (service_namespace) (increase(http_server_requests_milliseconds_count{deployment_environment_name="production", status=~"5.."}[5m]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+
+      # ERROR (or worse) in any production container's log.
+      - uid: error-logs
+        title: Fehler im Log
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: Error
+        labels: {}
+        annotations:
+          summary: '{{ $labels.service_namespace }}/{{ $labels.service_name }}: {{ $values.A.Value }} Fehler-Zeilen in 5 min'
+        data:
+          - refId: A
+            datasourceUid: loki
+            relativeTimeRange: {from: 300, to: 0}
+            model:
+              refId: A
+              queryType: instant
+              expr: sum by (service_namespace, service_name) (count_over_time({deployment_environment_name="production"} | detected_level=~"(?i)(error|fatal|critical)" [5m]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+
+      # An app that sent metrics within the last day has gone quiet for 5 min: down or cut off.
+      # Covers every app without listing it; one that is removed for good alerts for a day.
+      - uid: app-silent
+        title: App sendet keine Metriken
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: Error
+        labels: {}
+        annotations:
+          summary: '{{ $labels.service_namespace }} sendet seit 5 min keine Metriken'
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: {from: 300, to: 0}
+            model:
+              refId: A
+              instant: true
+              expr: group by (service_namespace) (last_over_time(jvm_memory_used_bytes{deployment_environment_name="production"}[1d])) unless group by (service_namespace) (last_over_time(jvm_memory_used_bytes{deployment_environment_name="production"}[5m]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+
+      - uid: disk-full
+        title: Platte fast voll
+        condition: C
+        for: 10m
+        noDataState: Alerting
+        execErrState: Error
+        labels: {}
+        annotations:
+          summary: 'Platte zu {{ humanizePercentage $values.A.Value }} belegt'
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: {from: 300, to: 0}
+            model:
+              refId: A
+              instant: true
+              expr: max(system_filesystem_utilization_ratio{service_name="host"})
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0.85]}
+
+      # Server: sustained, not spikes; thresholds far above the usual.
+      - uid: host-cpu
+        title: CPU dauerhaft hoch
+        condition: C
+        for: 10m
+        noDataState: Alerting
+        execErrState: Error
+        labels: {}
+        annotations:
+          summary: 'CPU seit 10 min bei {{ humanizePercentage $values.A.Value }}'
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: {from: 300, to: 0}
+            model:
+              refId: A
+              instant: true
+              expr: 1 - avg(system_cpu_utilization_ratio{service_name="host", state="idle"})
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0.8]}
+
+      - uid: host-ram
+        title: RAM fast voll
+        condition: C
+        for: 10m
+        noDataState: Alerting
+        execErrState: Error
+        labels: {}
+        annotations:
+          summary: 'RAM zu {{ humanizePercentage $values.A.Value }} belegt'
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: {from: 300, to: 0}
+            model:
+              refId: A
+              instant: true
+              expr: sum(system_memory_utilization_ratio{service_name="host", state="used"})
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0.85]}
+
+      # Load per core: above 1.5, processes queue for the CPU (or for the disk).
+      - uid: host-load
+        title: Load dauerhaft hoch
+        condition: C
+        for: 10m
+        noDataState: Alerting
+        execErrState: Error
+        labels: {}
+        annotations:
+          summary: 'Load je Kern seit 10 min bei {{ printf "%.1f" $values.A.Value }}'
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: {from: 300, to: 0}
+            model:
+              refId: A
+              instant: true
+              expr: max(system_cpu_load_average_5m{service_name="host"}) / count(count by (cpu) (system_cpu_utilization_ratio{service_name="host"}))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [1.5]}
+
+      # Traffic burst at the edge: over 500 requests in 5 min and 10x the day's average
+      # 5-min window (288 per day). A crawler, a scan or a sudden audience.
+      - uid: edge-burst
+        title: 'Edge: Traffic-Sprung'
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: Error
+        labels: {}
+        annotations:
+          summary: '{{ $values.A.Value }} Requests in 5 min (sonst {{ printf "%.0f" $values.B.Value }} am Tag)'
+        data:
+          - refId: A
+            datasourceUid: loki
+            relativeTimeRange: {from: 300, to: 0}
+            model:
+              refId: A
+              queryType: instant
+              expr: sum(count_over_time({service_namespace="edge-caddy", service_name="access-log"}[5m]))
+          - refId: B
+            datasourceUid: loki
+            relativeTimeRange: {from: 86400, to: 0}
+            model:
+              refId: B
+              queryType: instant
+              expr: sum(count_over_time({service_namespace="edge-caddy", service_name="access-log"}[1d]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: math
+              expression: '$A > 500 && $A > 10 * $B / 288'

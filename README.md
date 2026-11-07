@@ -39,6 +39,7 @@ curl -fsSL https://raw.githubusercontent.com/unividuell/edge-caddy/main/update.s
 | `STATS_AUTH_USER_2/3`, `STATS_AUTH_HASH_2/3` | further dashboard users (optional) |
 | `MONITORING_AUTH_USER_1`, `MONITORING_AUTH_HASH_1` | Grafana user at `monitoring.unividuell.org` (required) |
 | `COUNTDOWN_DB_MONITOR_PASSWORD` | countdown's read-only `monitor` role, both stacks (required) |
+| `ALERT_SMTP_USER`, `ALERT_SMTP_PASSWORD` | Gmail address and app password for alert mail (required) |
 
 ```bash
 docker run --rm caddy:2-alpine caddy hash-password --plaintext '<password>'
@@ -276,6 +277,9 @@ project databases (role `monitor`) ── monitoring network ┘
 ```
 
 Our collector config is `monitoring/otelcol-config.yaml`; it replaces the image's own.
+Alert rules, the mail contact point and the routing are `monitoring/grafana-alerting.yaml`:
+5xx answers, `ERROR` log lines, an app gone silent and a nearly full disk, production only.
+Mail goes via Gmail to `ALERT_SMTP_USER`. It cannot report the server itself being down.
 Dashboards are `monitoring/dashboards/*.json` (`countdown`, `mobility-manager`, `server`), provisioned at start —
 edits in the Grafana UI do not survive a restart. A new dashboard also needs its line in
 `update.sh`. Data lives in the `lgtm-data` volume and is kept for 30 days (Prometheus also
@@ -289,8 +293,9 @@ project is `production`. Apps sending OTLP must set the same values themselves.
 ### One-time setup
 
 1. **DNS**: an A record `monitoring.unividuell.org` → the server.
-2. **`.env`**: add `MONITORING_AUTH_USER_1` / `MONITORING_AUTH_HASH_1` (hash rules as above)
-   and `COUNTDOWN_DB_MONITOR_PASSWORD` (`openssl rand -hex 24`; no `$`).
+2. **`.env`**: add `MONITORING_AUTH_USER_1` / `MONITORING_AUTH_HASH_1` (hash rules as above),
+   `COUNTDOWN_DB_MONITOR_PASSWORD` (`openssl rand -hex 24`; no `$`) and
+   `ALERT_SMTP_USER` / `ALERT_SMTP_PASSWORD` (a Gmail app password, without spaces).
 3. **Docker daemon** — `/etc/docker/daemon.json`:
    ```json
    {

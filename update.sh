@@ -12,6 +12,7 @@ curl -fsSL "$BASE/update.sh"    -o update.sh.new && chmod +x update.sh.new && mv
 mkdir -p monitoring/dashboards
 curl -fsSL "$BASE/monitoring/otelcol-config.yaml"    -o monitoring/otelcol-config.yaml
 curl -fsSL "$BASE/monitoring/grafana-dashboards.yaml" -o monitoring/grafana-dashboards.yaml
+curl -fsSL "$BASE/monitoring/grafana-alerting.yaml"   -o monitoring/grafana-alerting.yaml
 for d in countdown mobility-manager server; do
   curl -fsSL "$BASE/monitoring/dashboards/$d.json" -o "monitoring/dashboards/$d.json"
 done
@@ -40,7 +41,7 @@ HELP
 
 # Required usernames and passwords: present and non-empty (quotes, if any, do not count as content).
 missing=""
-for v in NEWS_AUTH_USER_1 NEWS_AUTH_USER_2 STATS_AUTH_USER_1 MONITORING_AUTH_USER_1 COUNTDOWN_DB_MONITOR_PASSWORD; do
+for v in NEWS_AUTH_USER_1 NEWS_AUTH_USER_2 STATS_AUTH_USER_1 MONITORING_AUTH_USER_1 COUNTDOWN_DB_MONITOR_PASSWORD ALERT_SMTP_USER ALERT_SMTP_PASSWORD; do
   val=$(grep -E "^${v}=" .env | tail -1 | cut -d= -f2-)
   val=$(printf '%s' "$val" | sed "s/^['\"]//; s/['\"]\$//")
   [ -n "$val" ] || missing="$missing $v"

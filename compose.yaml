@@ -148,10 +148,20 @@ services:
       - LOKI_EXTRA_ARGS=-compactor.retention-enabled -compactor.delete-request-store=filesystem -store.retention=720h
       # Login of countdown's read-only `monitor` role (both stacks), see monitoring/otelcol-config.yaml.
       - COUNTDOWN_DB_MONITOR_PASSWORD=${COUNTDOWN_DB_MONITOR_PASSWORD}
+      # Alert mail via Gmail (an app password, not the account's). Sender and recipient
+      # are the same address; see monitoring/grafana-alerting.yaml.
+      - GF_SMTP_ENABLED=true
+      - GF_SMTP_HOST=smtp.gmail.com:587
+      - GF_SMTP_USER=${ALERT_SMTP_USER}
+      - GF_SMTP_PASSWORD=${ALERT_SMTP_PASSWORD}
+      - GF_SMTP_FROM_ADDRESS=${ALERT_SMTP_USER}
+      - GF_SMTP_FROM_NAME=unividuell monitoring
+      - ALERT_SMTP_USER=${ALERT_SMTP_USER}
     volumes:
       - ./monitoring/otelcol-config.yaml:/otel-lgtm/otelcol-config.yaml:ro
       - ./monitoring/grafana-dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/unividuell.yaml:ro
       - ./monitoring/dashboards:/otel-lgtm/unividuell-dashboards:ro
+      - ./monitoring/grafana-alerting.yaml:/otel-lgtm/grafana/conf/provisioning/alerting/unividuell.yaml:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - ./logs:/caddy-logs:ro
       - lgtm-data:/data
