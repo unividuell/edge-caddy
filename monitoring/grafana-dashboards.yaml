@@ -4,5 +4,7 @@ apiVersion: 1
 providers:
   - name: unividuell
     type: file
+    # The folder the alert rules (grafana-alerting.yaml) live in anyway.
+    folder: unividuell
     options:
       path: /otel-lgtm/unividuell-dashboards
