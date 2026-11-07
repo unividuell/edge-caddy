@@ -143,6 +143,8 @@ services:
     environment:
       # Caddy's basic_auth is the only gate; inside it Grafana keeps its anonymous admin.
       - GF_SERVER_ROOT_URL=https://monitoring.unividuell.org
+      # Start page: the server dashboard instead of Grafana's welcome/news panels.
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/otel-lgtm/unividuell-dashboards/server.json
       # 30 days, then deleted. Without these Loki keeps everything and the disk fills up.
       - PROMETHEUS_EXTRA_ARGS=--storage.tsdb.retention.time=30d --storage.tsdb.retention.size=5GB
       - LOKI_EXTRA_ARGS=-compactor.retention-enabled -compactor.delete-request-store=filesystem -store.retention=720h
