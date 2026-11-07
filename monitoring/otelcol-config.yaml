@@ -122,6 +122,15 @@ receivers:
     tls:
       insecure: true
 
+  # unividuell: is each app up? Its actuator health, over the `monitoring` network, by
+  # container name. A new app needs its line here. Metric `httpcheck_status`, label `http_url`.
+  httpcheck/apps:
+    collection_interval: 30s
+    targets:
+      - endpoint: http://countdown-core-1:8080/actuator/health
+      - endpoint: http://countdown-staging-core-1:8080/actuator/health
+      - endpoint: http://mobility-manager:8080/actuator/health
+
 extensions:
   health_check:
     endpoint: 0.0.0.0:13133
@@ -160,6 +169,10 @@ processors:
         action: upsert
 
   # unividuell: the same labels the apps send, so a project's dashboard finds its database.
+  resource/apps:
+    attributes:
+      - { key: service.namespace, value: edge-caddy, action: upsert }
+      - { key: service.name, value: httpcheck, action: upsert }
   resource/countdown-db:
     attributes:
       - { key: service.namespace, value: countdown, action: upsert }
@@ -204,6 +217,11 @@ service:
     metrics/host:
       receivers: [hostmetrics]
       processors: [resource/host, batch]
+      exporters: [otlphttp/metrics]
+    # unividuell
+    metrics/apps:
+      receivers: [httpcheck/apps]
+      processors: [resource/apps, batch]
       exporters: [otlphttp/metrics]
     # unividuell
     metrics/countdown-db:

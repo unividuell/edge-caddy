@@ -1,0 +1,4 @@
+# unividuell: mounted over otel-lgtm's own dashboard provider file, which loads its
+# JVM and RED sample dashboards. Ours are in grafana-dashboards.yaml.
+apiVersion: 1
+providers: []

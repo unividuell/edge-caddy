@@ -1,5 +1,5 @@
 # unividuell: Grafana alerting — rules, the mail contact point and the routing.
-# Mail goes out via Gmail SMTP (GF_SMTP_* in compose.yaml), from and to ALERT_SMTP_USER.
+# Mail goes out via Gmail SMTP (GF_SMTP_* in compose.yaml) to ALERT_EMAIL_TO.
 # Only production alerts; staging and local stay quiet. Like the dashboards, edits made
 # in the Grafana UI do not survive a restart: change this file instead.
 apiVersion: 1
@@ -11,7 +11,7 @@ contactPoints:
       - uid: email
         type: email
         settings:
-          addresses: $ALERT_SMTP_USER
+          addresses: $ALERT_EMAIL_TO
           singleEmail: true
 
 policies:
@@ -110,6 +110,34 @@ groups:
               expression: A
               conditions:
                 - evaluator: {type: gt, params: [0]}
+
+      # An app's actuator health is not 2xx, or the app is unreachable (httpcheck in
+      # otelcol-config.yaml). Staging is on the server dashboard but does not alert.
+      - uid: app-down
+        title: App down
+        condition: C
+        for: 2m
+        noDataState: Alerting
+        execErrState: Error
+        labels: {}
+        annotations:
+          summary: '{{ $labels.app }} ist down (actuator health)'
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: {from: 300, to: 0}
+            model:
+              refId: A
+              instant: true
+              expr: 'label_replace(max by (http_url) (httpcheck_status{http_status_class="2xx", http_url!~".*-staging-.*"}), "app", "$1", "http_url", "http://(.+?)(-core-1)?:.*")'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: lt, params: [1]}
 
       - uid: disk-full
         title: Platte fast voll
