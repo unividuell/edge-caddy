@@ -1,0 +1,8 @@
+[Unit]
+Description=Mirror the server's backups and report to edge-lgtm
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/backup-mirror/backup-mirror.sh

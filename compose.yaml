@@ -169,6 +169,10 @@ services:
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - ./logs:/caddy-logs:ro
       - lgtm-data:/data
+    # OTLP for senders outside docker, local only: the home server's backup mirror reaches
+    # it through an SSH tunnel (backup-mirror/).
+    ports:
+      - 127.0.0.1:4318:4318
     networks:
       - edge
       - monitoring

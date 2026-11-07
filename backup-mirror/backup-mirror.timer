@@ -1,0 +1,11 @@
+[Unit]
+Description=Mirror the server's backups every 12 hours
+
+[Timer]
+OnCalendar=00/12:00
+# thin is sometimes off for days: a missed run starts right after boot.
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target

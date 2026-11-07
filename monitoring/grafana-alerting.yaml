@@ -245,6 +245,62 @@ groups:
               conditions:
                 - evaluator: {type: gt, params: [1.5]}
 
+      # The home server mirrors the backups every 12 h (backup-mirror/). It is off for days at
+      # times, so only 4 days without a run alert. 30d window: an app's last value stays visible.
+      - uid: backup-mirror-stale
+        title: Backup-Spiegel steht
+        condition: C
+        for: 0m
+        noDataState: Alerting
+        execErrState: Error
+        labels: {}
+        annotations:
+          summary: '{{ $labels.app }}: seit {{ humanizeDuration $values.A.Value }} nicht gespiegelt'
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: {from: 300, to: 0}
+            model:
+              refId: A
+              instant: true
+              expr: time() - max by (app) (last_over_time(backup_mirror_last_success_timestamp_seconds[30d]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [345600]}
+
+      # The newest backup was over 26 h old when mirrored: the app's daily backup on the
+      # server has stopped.
+      - uid: backup-outdated
+        title: Backup veraltet
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: Error
+        labels: {}
+        annotations:
+          summary: '{{ $labels.app }}: neuestes Backup war beim Spiegeln {{ humanizeDuration $values.A.Value }} alt'
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: {from: 300, to: 0}
+            model:
+              refId: A
+              instant: true
+              expr: max by (app) (last_over_time(backup_mirror_newest_backup_age_seconds[30d]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [93600]}
+
       # Traffic burst at the edge: over 500 requests in 5 min and 10x the day's average
       # 5-min window (288 per day). A crawler, a scan or a sudden audience.
       - uid: edge-burst

@@ -340,3 +340,48 @@ project is `production`. Apps sending OTLP must set the same values themselves.
 The tag is pinned in `compose.yaml`. Before raising it, diff our collector config against
 the new image's (header of `monitoring/otelcol-config.yaml`). The image is 0.x: if the new
 version cannot read the old data, `docker volume rm edge-caddy_lgtm-data` and start empty.
+
+## Backup mirror
+
+The home server **thin** (Debian, not reachable from the internet) pulls each app's backup
+dir every 12 h into the same path on thin, `rsync --delete`, and reports each run to
+`edge-lgtm`. Files: `backup-mirror/`.
+
+```
+thin ── ssh, key backup-mirror-<app>: forced read-only rrsync on that app's dir ──> server
+thin ── same key, tunnel only to 127.0.0.1:4318 ── OTLP ──> edge-lgtm
+```
+
+| app | dir (server and thin) |
+|---|---|
+| countdown | `/opt/unividuell/countdown/backups` |
+| mobility-manager | `/opt/unividuell/mobility-manager/backups` |
+
+Metrics, label `app`: `backup_mirror_last_success_timestamp_seconds`,
+`backup_mirror_newest_backup_age_seconds`, `backup_mirror_size_bytes`. Alerts: no run for
+4 days (thin is off for days at times), or the newest backup over 26 h old when mirrored
+(the app's backup on the server stopped). Panel at the top of the server dashboard.
+
+**Setup on thin**, as `clemens`:
+
+```bash
+sudo apt install rsync
+mkdir -p ~/backup-mirror ~/.config/systemd/user
+B=https://raw.githubusercontent.com/unividuell/edge-caddy/main/backup-mirror
+curl -fsSL $B/backup-mirror.sh -o ~/backup-mirror/backup-mirror.sh && chmod +x ~/backup-mirror/backup-mirror.sh
+curl -fsSL $B/backup-mirror.service -o ~/.config/systemd/user/backup-mirror.service
+curl -fsSL $B/backup-mirror.timer   -o ~/.config/systemd/user/backup-mirror.timer
+systemctl --user daemon-reload && systemctl --user enable --now backup-mirror.timer
+sudo loginctl enable-linger clemens   # user timers run without a login
+```
+
+Per app: on thin `sudo install -d -o clemens <dir>` and
+`ssh-keygen -t ed25519 -N '' -C "backup-mirror <app>@thin" -f ~/.ssh/backup-mirror-<app>`;
+on the server one line in `~ubuntu/.ssh/authorized_keys`:
+
+```
+restrict,port-forwarding,permitopen="127.0.0.1:4318",command="rrsync -ro <dir>" <thin's backup-mirror-<app>.pub>
+```
+
+A new app: these two steps, its line in `APPS` in `backup-mirror.sh`, and a backup routine
+on the server that writes finished files there. Log of a run: `journalctl --user -u backup-mirror`.
