@@ -6,7 +6,10 @@ BASE="https://raw.githubusercontent.com/unividuell/edge-caddy/main"
 curl -fsSL "$BASE/compose.yaml" -o compose.yaml
 curl -fsSL "$BASE/Caddyfile"    -o Caddyfile
 curl -fsSL "$BASE/README.md"    -o README.md
-curl -fsSL "$BASE/update.sh"    -o update.sh.new && chmod +x update.sh.new && mv update.sh.new update.sh
+curl -fsSL "$BASE/update.sh"    -o update.sh.new && chmod +x update.sh.new
+# A changed script restarts itself: the old one would miss newly added files, and docker
+# then bind-mounts a missing file as an empty root-owned directory.
+if cmp -s update.sh.new update.sh; then rm update.sh.new; else mv update.sh.new update.sh; exec ./update.sh "$@"; fi
 
 # Monitoring stack config (edge-lgtm). A new dashboard needs its own line here.
 mkdir -p monitoring/dashboards
