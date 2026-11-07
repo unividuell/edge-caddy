@@ -45,13 +45,14 @@ HELP
 
 # Required usernames and passwords: present and non-empty (quotes, if any, do not count as content).
 missing=""
-for v in NEWS_AUTH_USER_1 NEWS_AUTH_USER_2 STATS_AUTH_USER_1 MONITORING_AUTH_USER_1 COUNTDOWN_DB_MONITOR_PASSWORD ALERT_SMTP_USER ALERT_SMTP_PASSWORD ALERT_EMAIL_TO; do
+for v in NEWS_AUTH_USER_1 NEWS_AUTH_USER_2 STATS_AUTH_USER COUNTDOWN_DB_MONITOR_PASSWORD ALERT_SMTP_USER ALERT_SMTP_PASSWORD ALERT_EMAIL_TO; do
   val=$(grep -E "^${v}=" .env | tail -1 | cut -d= -f2-)
   val=$(printf '%s' "$val" | sed "s/^['\"]//; s/['\"]\$//")
   [ -n "$val" ] || missing="$missing $v"
 done
 if [ -n "$missing" ]; then
   echo "ERROR: .env is missing or empty for:$missing" >&2
+  echo "Note: MONITORING_AUTH_USER_1 / _HASH_1 were renamed to STATS_AUTH_USER / STATS_AUTH_HASH." >&2
   exit 1
 fi
 
@@ -67,6 +68,7 @@ check_hash () {
   if [ -z "$hline" ]; then
     echo "ERROR: $hv is missing from .env." >&2
     echo "Note: BASIC_AUTH_HASH was renamed to NEWS_AUTH_HASH." >&2
+    echo "Note: MONITORING_AUTH_HASH_1 was renamed to STATS_AUTH_HASH." >&2
     hash_help
     exit 1
   fi
@@ -77,27 +79,11 @@ check_hash () {
   fi
 }
 
-for v in NEWS_AUTH_HASH STATS_AUTH_HASH_1 MONITORING_AUTH_HASH_1; do
+for v in NEWS_AUTH_HASH STATS_AUTH_HASH; do
   check_hash "$v"
 done
 
-# Stats slots 2 and 3 are optional: absent, commented out or left empty is fine —
-# compose.yaml then falls back to a placeholder credential nobody can log in with.
-# A slot that IS filled in must be as well-formed as any other.
-for v in STATS_AUTH_HASH_2 STATS_AUTH_HASH_3; do
-  line=$(grep -E "^${v}=" .env | tail -1) || true
-  [ -n "$line" ] || continue
-  val=$(printf '%s' "$line" | cut -d= -f2-)
-  case "$val" in ""|"''"|'""') continue ;; esac
-  check_hash "$v"
-done
-
-mkdir -p logs report filetransfer prueffahrt
-
-# GoAccess references this as <script src='attribution.js'>, resolved against the report
-# URL — so it belongs next to index.html, not with the infra files above. report/ is
-# git-ignored, hence the fetch here rather than at the top with the others.
-curl -fsSL "$BASE/attribution.js" -o report/attribution.js
+mkdir -p logs filetransfer prueffahrt
 
 docker network create edge 2>/dev/null || true
 docker network create monitoring 2>/dev/null || true
@@ -105,15 +91,15 @@ docker network create monitoring 2>/dev/null || true
 # edge-lgtm reads docker's json-file logs; another driver leaves the log panels empty
 # without any error. Warn only: the edge itself works either way.
 if [ "$(docker info --format '{{.LoggingDriver}}')" != "json-file" ]; then
-  echo "WARNING: docker's default log driver is not json-file — container logs will not reach monitoring (README, \"Monitoring\")." >&2
+  echo "WARNING: docker's default log driver is not json-file — container logs will not reach monitoring (README, \"One-time setup\")." >&2
 fi
 docker compose --env-file .env -f compose.yaml pull
 
 # Last gate before anything is recreated: adapt the real, bind-mounted Caddyfile with the
 # real .env in a throwaway container. `up -d` recreates the edge container whenever
 # compose.yaml changed, so a config error surviving the checks above is a site-wide
-# outage. --no-deps leaves goaccess alone, --rm leaves nothing behind, and `run` publishes
-# no ports, so the currently running edge is untouched.
+# outage. --no-deps leaves the other services alone, --rm leaves nothing behind, and `run`
+# publishes no ports, so the currently running edge is untouched.
 echo "Validating Caddyfile against .env ..."
 if ! docker compose --env-file .env -f compose.yaml run --rm --no-deps -T \
      --entrypoint sh caddy -c 'caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile'; then

@@ -60,25 +60,12 @@ news.zingler46.unividuell.org {
 	reverse_proxy comunio-news-app:8080
 }
 
-# traffic dashboard (GoAccess renders report/index.html; basicauth at the edge)
-# Slot 1 is required; unused slots fall back to a placeholder via compose.yaml.
-stats.unividuell.org {
-	log access
-	basic_auth {
-		{$STATS_AUTH_USER_1} {$STATS_AUTH_HASH_1}
-		{$STATS_AUTH_USER_2} {$STATS_AUTH_HASH_2}
-		{$STATS_AUTH_USER_3} {$STATS_AUTH_HASH_3}
-	}
-	root * /srv/report
-	file_server
-}
-
 # monitoring (Grafana inside edge-lgtm; basic_auth at the edge, Grafana itself runs anonymous)
-# No `log access`: the dashboards refresh every few seconds, which would swamp GoAccess and
-# feed the access log right back into the Loki it is displayed from.
-monitoring.unividuell.org {
+# No `log access`: the dashboards refresh every few seconds, which would feed the access
+# log right back into the Loki it is displayed from.
+stats.unividuell.org {
 	basic_auth {
-		{$MONITORING_AUTH_USER_1} {$MONITORING_AUTH_HASH_1}
+		{$STATS_AUTH_USER} {$STATS_AUTH_HASH}
 	}
 	reverse_proxy edge-lgtm:3000 {
 		# Grafana needs none of it; the edge password stops here.

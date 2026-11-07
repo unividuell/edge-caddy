@@ -30,7 +30,7 @@ receivers:
 
   # unividuell: every container's stdout/stderr. Docker writes one JSON object per line:
   #   {"log":"…\n","stream":"stdout","time":"…","attrs":{"com.docker.compose.project":"countdown",…}}
-  # `attrs` exists only with the daemon's log-opts "labels" (README, "Monitoring").
+  # `attrs` exists only with the daemon's log-opts "labels" (README, "One-time setup").
   # Without it a line still arrives, just without project and service.
   filelog/docker:
     include: [/var/lib/docker/containers/*/*-json.log]

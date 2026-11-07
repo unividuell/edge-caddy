@@ -13,14 +13,11 @@ services:
       - NEWS_AUTH_USER_1=${NEWS_AUTH_USER_1}
       - NEWS_AUTH_USER_2=${NEWS_AUTH_USER_2}
       - NEWS_AUTH_HASH=${NEWS_AUTH_HASH}
-      - STATS_AUTH_USER_1=${STATS_AUTH_USER_1}
-      - STATS_AUTH_HASH_1=${STATS_AUTH_HASH_1}
-      - MONITORING_AUTH_USER_1=${MONITORING_AUTH_USER_1}
-      - MONITORING_AUTH_HASH_1=${MONITORING_AUTH_HASH_1}
+      - STATS_AUTH_USER=${STATS_AUTH_USER}
+      - STATS_AUTH_HASH=${STATS_AUTH_HASH}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - ./logs:/var/log/caddy
-      - ./report:/srv/report:ro
       - ./filetransfer:/srv/filetransfer:ro
       - ./prueffahrt:/srv/prueffahrt:ro
       - caddy-data:/data
@@ -28,111 +25,10 @@ services:
     networks:
       - edge
 
-  goaccess:
-    image: allinurl/goaccess:latest
-    container_name: edge-goaccess
-    restart: unless-stopped
-    # No network access needed — it only reads and writes files.
-    network_mode: none
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        while :; do
-          if [ -s /logs/access.log ]; then
-            # Built per pass, not once: a missing database file is fatal to GoAccess, so
-            # a fresh deploy must render geo-less until edge-geoip finishes. Each pass is
-            # a new process, so the flag starts applying — and monthly database swaps get
-            # picked up — with no restart.
-            GEO=""
-            [ -f /geoip/dbip-country-lite.mmdb ] && GEO="--geoip-database=/geoip/dbip-country-lite.mmdb"
-            goaccess /logs/access.log \
-              --log-format=CADDY \
-              --no-global-config \
-              --no-progress \
-              --tz=Europe/Berlin \
-              --db-path=/db \
-              --restore --persist \
-              --real-os \
-              $$GEO \
-              --html-custom-js=attribution.js \
-              --html-report-title='unividuell edge' \
-              -o /report/.tmp.html \
-            && mv /report/.tmp.html /report/index.html
-          fi
-          sleep 300
-        done
-    volumes:
-      - ./logs:/logs:ro
-      - ./report:/report
-      - goaccess-db:/db
-      - geoip-data:/geoip:ro
-
-  # Keeps the GeoIP country database current. It exists as its own container so that
-  # edge-goaccess — which parses untrusted request data — can stay on network_mode: none.
-  geoip:
-    image: alpine:3
-    container_name: edge-geoip
-    restart: unless-stopped
-    # No `networks:` on purpose: Compose's auto-created default bridge gives the egress
-    # this needs, and it has no business on `edge` beside the application containers.
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        DB=/geoip/dbip-country-lite.mmdb
-        STAMP=/geoip/.stamp
-        while :; do
-          month=$$(date -u +%Y-%m)
-          if [ -f "$$DB" ] && [ "$$(cat "$$STAMP" 2>/dev/null)" = "$$month" ]; then
-            sleep 86400
-            continue
-          fi
-          # DB-IP publishes monthly. On the first days of a month the new file may not
-          # exist yet, so fall back to the previous month.
-          y=$$(date -u +%Y)
-          m=$$(date -u +%m)
-          pm=$$(( $${m#0} - 1 ))
-          py=$$y
-          if [ "$$pm" -eq 0 ]; then pm=12; py=$$(( y - 1 )); fi
-          prev=$$(printf '%s-%02d' "$$py" "$$pm")
-          installed=""
-          for cand in "$$month" "$$prev"; do
-            # A candidate already on disk (typically the previous-month fallback while the
-            # current month keeps 404ing) needs no re-fetch — only the un-stamped candidate
-            # (the current month) should actually hit the network.
-            if [ -f "$$DB" ] && [ "$$(cat "$$STAMP" 2>/dev/null)" = "$$cand" ]; then
-              echo "geoip: $$cand already installed, skipping re-download"
-              installed=$$cand
-              break
-            fi
-            url="https://download.db-ip.com/free/dbip-country-lite-$$cand.mmdb.gz"
-            echo "geoip: trying $$cand"
-            if wget -q -O /geoip/.tmp.gz "$$url" \
-               && gunzip -f /geoip/.tmp.gz \
-               && mv /geoip/.tmp "$$DB"; then
-              printf '%s' "$$cand" > "$$STAMP"
-              installed=$$cand
-              echo "geoip: installed $$cand ($$(wc -c < "$$DB") bytes)"
-              break
-            fi
-          done
-          rm -f /geoip/.tmp.gz /geoip/.tmp
-          # The stamp records the month actually installed, not today's. Falling back to
-          # the previous month therefore leaves it behind the calendar, and the daily
-          # retry keeps going until the current month's file appears.
-          if [ -n "$$installed" ]; then
-            sleep 86400
-          else
-            echo "geoip: no database available, retrying in 1h"
-            sleep 3600
-          fi
-        done
-    volumes:
-      - geoip-data:/geoip
-
   # Metrics, logs and traces for every project: grafana/otel-lgtm bundles an OpenTelemetry
   # Collector, Prometheus, Loki, Tempo and Grafana in one container. Apps send OTLP to
   # http://edge-lgtm:4318 over the `monitoring` network; container logs are read from
-  # docker's log files. Grafana is served at monitoring.unividuell.org behind basic_auth.
+  # docker's log files. Grafana is served at stats.unividuell.org behind basic_auth.
   lgtm:
     # Pinned: 0.x, a bump can change the data layout. Diff monitoring/otelcol-config.yaml
     # against the new image's copy first (see the file's header).
@@ -142,7 +38,7 @@ services:
     mem_limit: 2g
     environment:
       # Caddy's basic_auth is the only gate; inside it Grafana keeps its anonymous admin.
-      - GF_SERVER_ROOT_URL=https://monitoring.unividuell.org
+      - GF_SERVER_ROOT_URL=https://stats.unividuell.org
       # Start page: the server dashboard instead of Grafana's welcome/news panels.
       - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/otel-lgtm/unividuell-dashboards/server.json
       # 30 days, then deleted. Without these Loki keeps everything and the disk fills up.
@@ -180,8 +76,6 @@ services:
 volumes:
   caddy-data:
   caddy-config:
-  goaccess-db:
-  geoip-data:
   lgtm-data:
 
 networks:

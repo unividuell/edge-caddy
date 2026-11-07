@@ -15,10 +15,9 @@ Server dir: **`/opt/unividuell/edge-caddy/`**. Images are pulled from Docker Hub
 | `beta.countdown.unividuell.org` | `countdown-staging-web:80` |
 | `mobility.unividuell.org` | `mobility-manager:8080` |
 | `news.zingler46.unividuell.org` | `comunio-news-app:8080` (basicauth) |
-| `stats.unividuell.org` | *(static GoAccess report, basicauth)* |
+| `stats.unividuell.org` | `edge-lgtm:3000` (Grafana, basicauth) |
 | `files.unividuell.org` | *(static file transfer, open — the file name is the secret)* |
 | `prueffahrt.unividuell.org` | *(static Prüffahrt showcase, open — `/` redirects to `/showcase.html`)* |
-| `monitoring.unividuell.org` | `edge-lgtm:3000` (Grafana, basicauth) |
 
 ## Bootstrap (first time)
 ```bash
@@ -35,9 +34,7 @@ curl -fsSL https://raw.githubusercontent.com/unividuell/edge-caddy/main/update.s
 | --- | --- |
 | `NEWS_AUTH_USER_1`, `NEWS_AUTH_USER_2` | the two `news.zingler46` users |
 | `NEWS_AUTH_HASH` | bcrypt hash shared by both news users |
-| `STATS_AUTH_USER_1`, `STATS_AUTH_HASH_1` | first dashboard user (required) |
-| `STATS_AUTH_USER_2/3`, `STATS_AUTH_HASH_2/3` | further dashboard users (optional) |
-| `MONITORING_AUTH_USER_1`, `MONITORING_AUTH_HASH_1` | Grafana user at `monitoring.unividuell.org` (required) |
+| `STATS_AUTH_USER`, `STATS_AUTH_HASH` | Grafana user at `stats.unividuell.org` (required) |
 | `COUNTDOWN_DB_MONITOR_PASSWORD` | countdown's read-only `monitor` role, both stacks (required) |
 | `ALERT_SMTP_USER`, `ALERT_SMTP_PASSWORD`, `ALERT_EMAIL_TO` | Gmail sender, its app password, alert recipient (required) |
 
@@ -56,19 +53,6 @@ before deploying otherwise:
 ```
 NEWS_AUTH_HASH='$2a$14$.....................................................'
 ```
-
-### Adding a dashboard user
-
-Two steps, both required:
-
-1. Fill the next free slot in `.env` (`STATS_AUTH_USER_2` / `STATS_AUTH_HASH_2`).
-2. Add the matching two lines to the edge service's `environment:` in `compose.yaml` —
-   `{$VAR}` in the `Caddyfile` reads the *container's* environment, so a variable that
-   is only in `.env` never reaches Caddy.
-
-Then `./update.sh`. The `Caddyfile` already declares slots 2 and 3; a slot whose
-variables are unset drops out of the config, so only the slots you wire up exist.
-A fourth user additionally needs a slot in the `stats` block in `Caddyfile`.
 
 ## Update (route/infra changes)
 ```bash
@@ -95,7 +79,7 @@ Re-fetches `compose.yaml`, `Caddyfile`, `README.md`, and itself from `main`, the
 ## Filetransfer
 
 `https://files.unividuell.org/<name>` serves whatever sits in `filetransfer/` on the server,
-next to `report/`, with no authentication at all. **The file name is the only secret.**
+with no authentication at all. **The file name is the only secret.**
 Nothing lists what is there: `file_server` runs without `browse`, so `/` and every
 subdirectory answer 404, and a wrong name is indistinguishable from an empty server.
 `update.sh` creates the directory; the mount is `:ro`, so Caddy only serves and there is no
@@ -121,10 +105,10 @@ Two things follow from a secret being a URL rather than a credential:
 - **Paste the link into a chat and third parties fetch it.** Slack, WhatsApp, Signal and
   the rest generate previews by requesting the URL from their own servers, so the secret
   is spent the moment it is shared. That is inherent to the design, not a bug in it.
-- **Requested paths land in `logs/access.log`**, and `edge-goaccess` renders them into the
-  `stats.unividuell.org` dashboard — so shared file names appear there in clear text and
-  survive in the `goaccess-db` volume after the file is gone. The dashboard is behind basic
-  auth. If that stops being acceptable, drop `log access` from the site block.
+- **Requested paths land in `logs/access.log`**, and `edge-lgtm` ships that log into Loki —
+  so shared file names appear in Grafana in clear text for 30 days after the request,
+  even once the file is gone. Grafana is behind basic auth. If that stops being acceptable,
+  drop `log access` from the site block.
 
 Deleting the file is the only way to revoke a link; there is no expiry and no download limit:
 
@@ -156,85 +140,18 @@ scp -r showcase.html spectrogram-run3.jpg vespa-mount.jpg preview.jpg fonts oci.
 
 A new version is live as soon as the copy finishes; Caddy needs no reload for content changes.
 
-## Monitoring
+## Access log
 
-Every site writes one JSON access log, `logs/access.log`, with client IPs masked
-(IPv4 `/24`, IPv6 `/48`) and `Cookie` / `Authorization` headers stripped. The
-`edge-goaccess` container renders it into `report/index.html` every 5 minutes and
-keeps cumulative aggregates in the `goaccess-db` volume, so history outlives log
-rotation. The dashboard is at `https://stats.unividuell.org` behind basic auth.
+Every site except `stats.` writes one JSON access log, `logs/access.log`, with client IPs
+masked (IPv4 `/24`, IPv6 `/48`) and `Cookie` / `Authorization` headers stripped. Caddy
+rotates it at 20 MB and keeps five files. `edge-lgtm` tails it into Loki
+(`service_namespace="edge-caddy"`, `service_name="access-log"`); the server dashboard
+shows requests per host and per status from it, and Explore answers everything else —
+e.g. the top paths answering 404:
 
-After a first deploy `stats.unividuell.org` returns **404 for up to five minutes** —
-`report/index.html` does not exist until GoAccess completes its first pass.
-
-It answers: which domain gets the traffic, which status codes, which user agents
-and bots, which URLs, and average/max request duration per row.
-
-It does **not** alert, and it has no latency percentiles — only average and max.
-Unique visitors are keyed on masked IP + user agent + day, so treat them as a
-trend, not a headcount.
-
-### Geo data
-
-**Enabling this for the first time needs two `./update.sh` runs.** `update.sh` replaces
-itself with `mv`, which is a rename — the shell already running it keeps its file descriptor
-on the *old* inode and finishes executing the old script. So the first `./update.sh` after
-this feature lands fetches the new `compose.yaml` (goaccess starts passing
-`--html-custom-js=attribution.js`) but does **not** fetch `report/attribution.js` itself,
-because that fetch only exists in the *new* `update.sh`. Until a second `./update.sh` runs,
-the report links to a file that 404s and the CC-BY attribution is missing. The one-time
-migration below doubles as that second run.
-
-The dashboard resolves the **country** of each request — not the city, and not the
-provider. The `edge-geoip` container keeps a DB-IP Country Lite database in the
-`geoip-data` volume, checking daily and downloading a new one each month. GoAccess
-picks up a replaced database on its next 5-minute pass, with no restart.
-
-The database is licensed **CC-BY 4.0**, which requires the *IP Geolocation by DB-IP*
-link that `report/attribution.js` adds to the bottom of the report. Do not remove it.
-
-Client IPs are masked (`/24` IPv4, `/48` IPv6) before they are ever written, so a country
-is the most this can resolve — which is also why no city database is installed. VPN and
-cloud traffic resolves to the exit node, so a scanner in `eu-central-1` counts as Germany.
-
-`docker restart edge-geoip` only resumes the loop — useful if it is stuck in the hourly
-retry after a failed download, since restarting re-enters the loop immediately instead of
-waiting out the `sleep 3600`. It does **not** force a re-download: with a current `.stamp`,
-the loop's very first check on restart (`[ -f "$DB" ] && [ stamp = month ]`) is already true,
-so it just sleeps another 24 h without touching the network.
-
-To actually force a fresh download — e.g. to pick up a corrected release — delete the stamp
-first, so the loop's guard fails and it re-fetches:
-
-```bash
-docker exec edge-geoip rm -f /geoip/.stamp && docker restart edge-geoip
+```logql
+topk(20, sum by (request_uri) (count_over_time({service_name="access-log"} | json | status="404" [24h])))
 ```
-
-Then check the result:
-
-```bash
-docker logs --tail 20 edge-geoip
-```
-
-Give it a few seconds before trusting this — right after a restart it can still show the
-*previous* run's `geoip: installed YYYY-MM` line, which reads as success but predates the new
-attempt. A failed download leaves the previous database in place and retries hourly, and
-nothing alerts.
-
-**One-time migration when enabling geo.** GoAccess resolves countries at parse time, so
-records already aggregated in `goaccess-db` never gain one. Run this **once**, and never
-from `update.sh` — there it would discard the accumulated history on every deploy:
-
-```bash
-docker compose rm -sf goaccess && docker volume rm edge-caddy_goaccess-db && ./update.sh
-```
-
-`docker compose stop` is not enough — `docker volume rm` refuses a volume referenced by any
-container, including a stopped one. `rm -sf` stops **and removes** the container first, so the
-volume is actually free to drop.
-
-That re-parses the current `access.log` with geo. Data from already-rotated logs is gone
-as far as countries are concerned.
 
 Ad-hoc queries against the raw log. Caddy writes it as root with mode `0600`, so
 reading it needs `sudo` — e.g. the top 10 user agents:
@@ -243,13 +160,13 @@ reading it needs `sudo` — e.g. the top 10 user agents:
 sudo jq -r '.request.headers."User-Agent"[0]' logs/access.log | sort | uniq -c | sort -rn | head
 ```
 
-Traffic per domain, which is what the `vhosts` panel shows:
+Traffic per domain:
 
 ```bash
 sudo jq -r '.request.host' logs/access.log | sort | uniq -c | sort -rn
 ```
 
-The slowest requests, which the dashboard only summarises as an average:
+The slowest requests:
 
 ```bash
 sudo jq -r '[.duration, .status, .request.host, .request.uri] | @tsv' logs/access.log | sort -rn | head
@@ -265,7 +182,7 @@ the handful of domains here. DNS for each domain must already point at this host
 
 One [`grafana/otel-lgtm`](https://github.com/grafana/docker-otel-lgtm) container for every
 project: an OpenTelemetry Collector, Prometheus, Loki, Tempo and Grafana in one image.
-Grafana is at `https://monitoring.unividuell.org`, behind basic auth; inside, it runs
+Grafana is at `https://stats.unividuell.org`, behind basic auth; inside, it runs
 anonymous with admin rights.
 
 ```
@@ -292,8 +209,8 @@ project is `production`. Apps sending OTLP must set the same values themselves.
 
 ### One-time setup
 
-1. **DNS**: an A record `monitoring.unividuell.org` → the server.
-2. **`.env`**: add `MONITORING_AUTH_USER_1` / `MONITORING_AUTH_HASH_1` (hash rules as above),
+1. **DNS**: an A record `stats.unividuell.org` → the server.
+2. **`.env`**: add `STATS_AUTH_USER` / `STATS_AUTH_HASH` (hash rules as above),
    `COUNTDOWN_DB_MONITOR_PASSWORD` (`openssl rand -hex 24`; no `$`) and
    `ALERT_SMTP_USER` / `ALERT_SMTP_PASSWORD` (a Gmail app password, without spaces) / `ALERT_EMAIL_TO`.
 3. **Docker daemon** — `/etc/docker/daemon.json`:
@@ -314,7 +231,7 @@ project is `production`. Apps sending OTLP must set the same values themselves.
    (`docker compose … up -d --force-recreate`, or its `update.sh` after a change).
    `update.sh` warns while the default driver is not `json-file`.
 4. **Deploy with the new `update.sh`.** The running script cannot pick up its own
-   replacement (see *Geo data*), and only the new one fetches `monitoring/` and creates the
+   replacement, and only the new one fetches `monitoring/` and creates the
    `monitoring` network:
    ```bash
    curl -fsSL https://raw.githubusercontent.com/unividuell/edge-caddy/main/update.sh -o update.sh && ./update.sh
