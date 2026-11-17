@@ -115,8 +115,9 @@ docker compose --env-file .env -f compose.yaml.new pull --ignore-buildable
 # plugin's latest version, resolved here, is passed in as a build arg — so a new plugin
 # release busts the build cache the same way. If neither changed, the cached image is
 # reused and `up -d` leaves the running container alone. Without the Go proxy the build
-# falls back to `latest` (and to the cache, if the base images did not change either).
-CF_PLUGIN_VERSION=$(curl -fsSL https://proxy.golang.org/github.com/caddy-dns/cloudflare/@latest | sed -n 's/.*"Version":"\([^"]*\)".*/\1/p')
+# falls back to `latest` (and to the cache, if the base images did not change either); the
+# time limits keep a blackholed proxy from stalling the whole update.
+CF_PLUGIN_VERSION=$(curl -fsSL --connect-timeout 5 --max-time 20 https://proxy.golang.org/github.com/caddy-dns/cloudflare/@latest | sed -n 's/.*"Version":"\([^"]*\)".*/\1/p')
 CF_PLUGIN_VERSION=${CF_PLUGIN_VERSION:-latest}
 echo "Building the edge image with caddy-dns/cloudflare $CF_PLUGIN_VERSION ..."
 docker compose --env-file .env -f compose.yaml.new build --pull --build-arg CF_PLUGIN_VERSION="$CF_PLUGIN_VERSION" caddy

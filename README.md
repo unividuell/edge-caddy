@@ -24,9 +24,9 @@ login is needed for the edge itself.
 ```bash
 mkdir -p /opt/unividuell/edge-caddy && cd /opt/unividuell/edge-caddy
 curl -fsSL https://raw.githubusercontent.com/unividuell/edge-caddy/main/update.sh -o update.sh && chmod +x update.sh
-./update.sh          # fetches compose.yaml + Caddyfile + a .env template, then stops
+./update.sh          # fetches the config files + a .env template, then stops
 # edit .env: fill in credentials (see below)
-./update.sh          # creates the edge network, pulls caddy, starts the edge
+./update.sh          # creates the networks, builds the edge image, validates, starts the edge
 ```
 
 `.env` holds all credentials and is never committed. Copy `.env.example` and fill in:

@@ -337,8 +337,9 @@ groups:
       # Caddy could not obtain or renew a certificate. Every one-label site shares the one
       # *.unividuell.org wildcard, so a broken Cloudflare token takes them all down at once —
       # 30 days after the first failed renewal; this mails on that first one. A single failed
-      # attempt is enough: Caddy retries by itself, so a mail that resolves within the hour
-      # was transient.
+      # attempt is enough. "Resolved" only means no failed attempt in the last hour — not that
+      # Caddy succeeded: its retries back off to hours apart, so a lasting failure fires,
+      # resolves and fires again. Check system.log for "certificate obtained successfully".
       - uid: edge-cert
         title: 'Edge: Zertifikat'
         condition: C
