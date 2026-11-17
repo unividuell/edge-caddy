@@ -13,8 +13,8 @@ login is needed for the edge itself.
 ## Routes
 | Domain | Upstream container |
 | --- | --- |
-| `countdown.unividuell.org` | `countdown-web:80` |
-| `beta.countdown.unividuell.org` | `countdown-staging-web:80` |
+| `daily.unividuell.org` | `countdown-web:80` (the countdown project, production) |
+| `nightly.unividuell.org` | `countdown-staging-web:80` (the countdown project, staging) |
 | `mobility.unividuell.org` | `mobility-manager:8080` |
 | `stats.unividuell.org` | `edge-lgtm:3000` (Grafana, basicauth) |
 | `files.unividuell.org` | *(static file transfer, open — the file name is the secret)* |
@@ -198,14 +198,12 @@ issued and a `.env` scanner 30 s later. With the wildcard, the logs show `*.univ
 and nothing else for a new name. Names issued before (countdown, beta.countdown, mobility,
 stats, files, prueffahrt, monitoring, news.zingler46) stay on crt.sh for good.
 
-- **One-label names only.** The wildcard covers exactly one label. `beta.countdown.` is the
-  last two-label name; it keeps its own HTTP-01 certificate (and CT entry) until countdown
-  renames it.
-- **Explicit A records:** only `countdown` and `beta.countdown` keep one (plus records that
-  point elsewhere, such as `huettehuette`). Every other one-label name is answered by `*`.
-  `countdown` needs its own while `beta.countdown` has one: without it, `countdown` would be
-  an empty node above `beta.countdown`, and the wildcard does not answer for those. Once
-  `beta.countdown` is gone, its block and record go, then `countdown`'s record.
+- **One-label names only.** The wildcard covers exactly one label, and every site has one
+  (countdown moved to `daily.` / `nightly.`, so no site needs a certificate of its own).
+- **No explicit A records for this edge:** `*` answers every one-label name. Records that
+  point elsewhere, such as `huettehuette`, stay as they are — an explicit record always wins
+  over the wildcard. Never add a record *below* a site name (`x.<name>`): it would turn
+  `<name>` into an empty node, and the wildcard does not answer for those.
 - **Unknown names:** a one-label name without a site block gets the TLS handshake and a
   closed connection; a two-label name gets no certificate and fails in the handshake.
 - **The token** needs Zone · DNS · Edit and Zone · Zone · Read for `unividuell.org` only,

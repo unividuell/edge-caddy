@@ -30,8 +30,8 @@
 # name never shows up in a Certificate Transparency log — and bots read those live.
 # A name without a block of its own gets the TLS handshake and then a closed connection.
 # No `log access`: the per-host panels should show only real sites.
-# Two-label names are not covered: they get no certificate and fail in the handshake. Only
-# beta.countdown has a block of its own (and its own certificate) until countdown renames it.
+# Two-label names are not covered: they get no certificate and fail in the handshake. Keep
+# every site at one label (<name>.unividuell.org).
 *.unividuell.org {
 	tls {
 		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
@@ -39,14 +39,15 @@
 	abort
 }
 
-# countdown SPA + API (TLS here; countdown-web serves :80 plain behind the edge)
-countdown.unividuell.org {
+# daily — the countdown project, renamed for users (formerly countdown.unividuell.org).
+# SPA + API; TLS here, countdown-web serves :80 plain behind the edge.
+daily.unividuell.org {
 	log access
 	reverse_proxy countdown-web:80
 }
 
-# countdown staging (own stack, test-user login)
-beta.countdown.unividuell.org {
+# nightly — countdown's staging stack, test-user login (formerly beta.countdown.unividuell.org)
+nightly.unividuell.org {
 	log access
 	reverse_proxy countdown-staging-web:80
 }
