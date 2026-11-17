@@ -58,8 +58,10 @@ STATS_AUTH_HASH='$2a$14$.....................................................'
 ```bash
 cd /opt/unividuell/edge-caddy && ./update.sh
 ```
-Re-fetches `compose.yaml`, `Caddyfile`, `caddy/Dockerfile`, the monitoring config,
-`README.md`, and itself from `main`, then:
+Re-fetches `caddy/Dockerfile`, the monitoring config, `README.md`, and itself from `main`,
+and stages `compose.yaml` and `Caddyfile` as `compose.yaml.new` / `Caddyfile.new` — the
+live files stay as they are until the gate below has passed, so an aborted run leaves
+nothing a restart of the edge could trip over. Then:
 
 1. **`.env` preflight** — every required variable present and non-empty, and every hash
    in the single-quoted 60-character form. Aborts with an explanatory message otherwise,
@@ -67,13 +69,15 @@ Re-fetches `compose.yaml`, `Caddyfile`, `caddy/Dockerfile`, the monitoring confi
 2. Ensures the `edge` and `monitoring` networks, pulls `edge-lgtm`, and **builds the edge
    image** from `caddy/Dockerfile` with the latest Caddy and the latest Cloudflare plugin.
    That takes about 2–3 minutes when either changed and is cached otherwise. A failed build
-   aborts here, before anything is touched.
-3. **Validation gate** — `caddy validate` against the real `Caddyfile` with the real
+   aborts here; the running edge keeps its image and its files.
+3. **Validation gate** — `caddy validate` against the fetched `Caddyfile.new` with the real
    `.env`, on the image just built, in a throwaway container that publishes no ports.
    Aborts if the config would not start — including a missing DNS plugin or a malformed
-   `CLOUDFLARE_API_TOKEN` — leaving the running edge untouched.
-4. `docker compose up -d`, then `caddy reload` — `up -d` does not recreate the container
-   for a `Caddyfile`-only change, so the reload is what picks up new sites and routes.
+   `CLOUDFLARE_API_TOKEN` — leaving the running edge and its files untouched.
+4. Puts `Caddyfile` and `compose.yaml` in place (the Caddyfile rewritten in place, since it
+   is bind-mounted), then `docker compose up -d` and `caddy reload` — `up -d` recreates the
+   container only when `compose.yaml` or the image changed, so the reload is what picks up
+   new sites and routes.
 
 ## Add a new site
 1. Pick a **one-label** name, `<name>.unividuell.org`. The wildcard DNS record and the

@@ -4,8 +4,13 @@
 set -eu
 BASE="https://raw.githubusercontent.com/unividuell/edge-caddy/main"
 
-curl -fsSL "$BASE/compose.yaml" -o compose.yaml
-curl -fsSL "$BASE/Caddyfile"    -o Caddyfile
+# compose.yaml and the Caddyfile are staged as *.new and replace the live files only once
+# the validation gate below has passed. The live Caddyfile is bind-mounted into the running
+# edge and is what its next restart loads — a new one may need an image that an aborted run
+# never built (the Cloudflare plugin), so an abort must leave both files as they were.
+# Leftover *.new files from an aborted run are simply overwritten by the next one.
+curl -fsSL "$BASE/compose.yaml" -o compose.yaml.new
+curl -fsSL "$BASE/Caddyfile"    -o Caddyfile.new
 curl -fsSL "$BASE/README.md"    -o README.md
 curl -fsSL "$BASE/update.sh"    -o update.sh.new && chmod +x update.sh.new
 # A changed script restarts itself: the old one would miss newly added files, and docker
@@ -91,6 +96,9 @@ for v in STATS_AUTH_HASH; do
 done
 
 mkdir -p logs filetransfer prueffahrt
+# First deploy only: nothing runs yet, and the gate's throwaway container bind-mounts
+# ./Caddyfile — a missing one would come back as an empty root-owned directory.
+[ -e Caddyfile ] || cp Caddyfile.new Caddyfile
 
 docker network create edge 2>/dev/null || true
 docker network create monitoring 2>/dev/null || true
@@ -100,7 +108,7 @@ docker network create monitoring 2>/dev/null || true
 if [ "$(docker info --format '{{.LoggingDriver}}')" != "json-file" ]; then
   echo "WARNING: docker's default log driver is not json-file — container logs will not reach monitoring (README, \"One-time setup\")." >&2
 fi
-docker compose --env-file .env -f compose.yaml pull --ignore-buildable
+docker compose --env-file .env -f compose.yaml.new pull --ignore-buildable
 
 # The edge image is built, not pulled. Caddy and the Cloudflare plugin both follow their
 # latest release: `--pull` picks up a new caddy:2-builder / caddy:2-alpine, and the
@@ -111,22 +119,28 @@ docker compose --env-file .env -f compose.yaml pull --ignore-buildable
 CF_PLUGIN_VERSION=$(curl -fsSL https://proxy.golang.org/github.com/caddy-dns/cloudflare/@latest | sed -n 's/.*"Version":"\([^"]*\)".*/\1/p')
 CF_PLUGIN_VERSION=${CF_PLUGIN_VERSION:-latest}
 echo "Building the edge image with caddy-dns/cloudflare $CF_PLUGIN_VERSION ..."
-docker compose --env-file .env -f compose.yaml build --pull --build-arg CF_PLUGIN_VERSION="$CF_PLUGIN_VERSION" caddy
+docker compose --env-file .env -f compose.yaml.new build --pull --build-arg CF_PLUGIN_VERSION="$CF_PLUGIN_VERSION" caddy
 
-# Last gate before anything is recreated: adapt the real, bind-mounted Caddyfile with the
-# real .env in a throwaway container. `up -d` recreates the edge container whenever
-# compose.yaml or the image changed, so a config error surviving the checks above is a
-# site-wide outage. It runs on the image just built, so it also catches an image without
-# the DNS plugin and a malformed CLOUDFLARE_API_TOKEN: the plugin checks the token's shape
-# on provisioning, and a bad one stops the whole config, every site. --no-deps leaves the
-# other services alone, --rm leaves nothing behind, and `run` publishes no ports, so the
-# currently running edge is untouched.
+# Last gate before anything is recreated: adapt the fetched Caddyfile (on stdin) with the
+# real .env and the new compose.yaml in a throwaway container. `up -d` recreates the edge
+# container whenever compose.yaml or the image changed, so a config error surviving the
+# checks above is a site-wide outage. It runs on the image just built, so it also catches an
+# image without the DNS plugin and a malformed CLOUDFLARE_API_TOKEN: the plugin checks the
+# token's shape on provisioning, and a bad one stops the whole config, every site.
+# --no-deps leaves the other services alone, --rm leaves nothing behind, and `run`
+# publishes no ports, so the currently running edge is untouched.
 echo "Validating Caddyfile against .env ..."
-if ! docker compose --env-file .env -f compose.yaml run --rm --no-deps -T \
-     --entrypoint sh caddy -c 'caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile'; then
-  echo "ERROR: caddy validate failed (see above). Nothing was changed — fix the config first." >&2
+if ! docker compose --env-file .env -f compose.yaml.new run --rm --no-deps -T \
+     --entrypoint sh caddy -c 'caddy validate --adapter caddyfile --config /dev/stdin' < Caddyfile.new; then
+  echo "ERROR: caddy validate failed (see above). Nothing was deployed: the running edge, its Caddyfile and compose.yaml are unchanged — fix the config first." >&2
   exit 1
 fi
+
+# Gate passed: put the new files in place. `cat >` rewrites the Caddyfile in place — it is
+# bind-mounted into the running edge by inode, and `mv` would leave the container (and the
+# reload below) on the old file.
+cat Caddyfile.new > Caddyfile && rm Caddyfile.new
+cat compose.yaml.new > compose.yaml && rm compose.yaml.new
 
 docker compose --env-file .env -f compose.yaml up -d
 # The Caddyfile is bind-mounted; `up -d` does NOT recreate the container on a config-only
