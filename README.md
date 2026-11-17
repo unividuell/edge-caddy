@@ -5,8 +5,10 @@ each project. It is the only process allowed on those ports. Every app runs as i
 stack and joins the external Docker network **`edge`**; the edge reaches each app by its
 stable `container_name`. TLS terminates here — apps speak plain HTTP behind it.
 
-Server dir: **`/opt/unividuell/edge-caddy/`**. Images are pulled from Docker Hub
-(`caddy:2-alpine`, public — no ghcr login needed for the edge itself).
+Server dir: **`/opt/unividuell/edge-caddy/`**. The edge image is built on the server from
+`caddy/Dockerfile` — `caddy:2-alpine` plus the Cloudflare DNS plugin the wildcard
+certificate needs (see [Certs](#certs)). Everything else is pulled from Docker Hub; no ghcr
+login is needed for the edge itself.
 
 ## Routes
 | Domain | Upstream container |
@@ -14,7 +16,6 @@ Server dir: **`/opt/unividuell/edge-caddy/`**. Images are pulled from Docker Hub
 | `countdown.unividuell.org` | `countdown-web:80` |
 | `beta.countdown.unividuell.org` | `countdown-staging-web:80` |
 | `mobility.unividuell.org` | `mobility-manager:8080` |
-| `news.zingler46.unividuell.org` | `comunio-news-app:8080` (basicauth) |
 | `stats.unividuell.org` | `edge-lgtm:3000` (Grafana, basicauth) |
 | `files.unividuell.org` | *(static file transfer, open — the file name is the secret)* |
 | `prueffahrt.unividuell.org` | *(static Prüffahrt showcase, open — `/` redirects to `/showcase.html`)* |
@@ -71,10 +72,13 @@ Re-fetches `compose.yaml`, `Caddyfile`, `README.md`, and itself from `main`, the
    for a `Caddyfile`-only change, so the reload is what picks up new sites and routes.
 
 ## Add a new site
-1. Add a site block to `Caddyfile`: `<domain> { reverse_proxy <container_name>:<port> }`.
-2. Make sure the app's compose attaches that container to the external `edge` network with
+1. Pick a **one-label** name, `<name>.unividuell.org`. The wildcard DNS record and the
+   wildcard certificate already cover it: no Cloudflare record, no certificate of its own,
+   and the name never appears in a CT log (see [Certs](#certs)). Not `<a>.<b>.unividuell.org`.
+2. Add a site block to `Caddyfile`: `<name>.unividuell.org { reverse_proxy <container_name>:<port> }`.
+3. Make sure the app's compose attaches that container to the external `edge` network with
    a stable `container_name` and **publishes no host ports**.
-3. Commit, then on the server `./update.sh`. Caddy obtains the cert on first request.
+4. Commit, then on the server `./update.sh`.
 
 ## Filetransfer
 
@@ -173,10 +177,34 @@ sudo jq -r '[.duration, .status, .request.host, .request.uri] | @tsv' logs/acces
 ```
 
 ## Certs
-Caddy stores certs/ACME state in the `caddy-data` volume. A fresh volume triggers
-Let's Encrypt issuance for every domain on first request — well within rate limits for
-the handful of domains here. DNS for each domain must already point at this host and
-80/443 must be open.
+Every one-label site is served from **one wildcard certificate, `*.unividuell.org`**. Caddy
+obtains and renews it itself by DNS-01: it writes a TXT record through the Cloudflare API
+with `CLOUDFLARE_API_TOKEN` from `.env`. Since 2.10 Caddy serves that certificate for every
+site block it covers instead of ordering one per name. DNS has a single `*` A record to
+`158.101.161.126` (DNS only, not proxied), so a new one-label name resolves without a record
+of its own.
+
+Why: every publicly trusted certificate lands in the Certificate Transparency logs, and bots
+read them live — `prueffahrt.` got its first crawler in the second its certificate was
+issued and a `.env` scanner 30 s later. With the wildcard, the logs show `*.unividuell.org`
+and nothing else for a new name. Names issued before (countdown, beta.countdown, mobility,
+stats, files, prueffahrt, monitoring, news.zingler46) stay on crt.sh for good.
+
+- **One-label names only.** The wildcard covers exactly one label. `beta.countdown.` is the
+  last two-label name; it keeps its own HTTP-01 certificate (and CT entry) until countdown
+  renames it.
+- **Keep the explicit A records until then.** While `beta.countdown` has a record,
+  `countdown` without its own would be an empty node, and the wildcard does not answer for
+  those. Once `beta.countdown` is gone, its block and record go, and the `*` record alone is
+  enough.
+- **Unknown names:** a one-label name without a site block gets the TLS handshake and a
+  closed connection; a two-label name gets no certificate and fails in the handshake.
+- **The token** needs Zone · DNS · Edit and Zone · Zone · Read for `unividuell.org` only,
+  restricted to the server's IP (see `.env.example`). Caddy refuses a malformed token at
+  start — and with it the whole edge — so `update.sh`'s `caddy validate` gate stops it first.
+  A failing renewal mails "Edge: Zertifikat" (see [monitoring](#metrics-logs-and-traces-edge-lgtm)).
+
+Certificates and ACME state live in the `caddy-data` volume.
 
 ## Metrics, logs and traces (`edge-lgtm`)
 

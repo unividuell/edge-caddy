@@ -24,6 +24,21 @@
 	}
 }
 
+# One certificate for every one-label site: *.unividuell.org, obtained by DNS-01 through the
+# Cloudflare token in .env (CLOUDFLARE_API_TOKEN). Since 2.10 Caddy serves a managed wildcard
+# for every site block it covers instead of ordering one certificate per name, so a new
+# name never shows up in a Certificate Transparency log — and bots read those live.
+# A name without a block of its own gets the TLS handshake and then a closed connection.
+# No `log access`: the per-host panels should show only real sites.
+# Two-label names are not covered: they get no certificate and fail in the handshake. Only
+# beta.countdown has a block of its own (and its own certificate) until countdown renames it.
+*.unividuell.org {
+	tls {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+	abort
+}
+
 # countdown SPA + API (TLS here; countdown-web serves :80 plain behind the edge)
 countdown.unividuell.org {
 	log access
@@ -40,24 +55,6 @@ beta.countdown.unividuell.org {
 mobility.unividuell.org {
 	log access
 	reverse_proxy mobility-manager:8080
-}
-
-# comunio-news (basicauth at the edge)
-# PARKED: the Cloudflare A record is gone. The app is unfinished and its only visitors were
-# vulnerability scanners — 24k requests, every one of them answered 401 here, which made it
-# the busiest host in the stats dashboard. `tls internal` issues the cert from Caddy's local
-# CA instead of Let's Encrypt: without it every renewal from ~2026-10-10 would fail on
-# NXDOMAIN (both HTTP-01 and TLS-ALPN-01 need a resolving name) and fill system.log with
-# errors for a site nobody can reach. The block stays so `caddy validate` keeps checking it.
-# To revive: drop the `tls internal` line and re-create the A record.
-news.zingler46.unividuell.org {
-	log access
-	tls internal
-	basic_auth {
-		{$NEWS_AUTH_USER_1} {$NEWS_AUTH_HASH}
-		{$NEWS_AUTH_USER_2} {$NEWS_AUTH_HASH}
-	}
-	reverse_proxy comunio-news-app:8080
 }
 
 # monitoring (Grafana inside edge-lgtm; basic_auth at the edge, Grafana itself runs anonymous)
