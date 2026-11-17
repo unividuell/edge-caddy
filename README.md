@@ -5,8 +5,10 @@ each project. It is the only process allowed on those ports. Every app runs as i
 stack and joins the external Docker network **`edge`**; the edge reaches each app by its
 stable `container_name`. TLS terminates here — apps speak plain HTTP behind it.
 
-Server dir: **`/opt/unividuell/edge-caddy/`**. Images are pulled from Docker Hub
-(`caddy:2-alpine`, public — no ghcr login needed for the edge itself).
+Server dir: **`/opt/unividuell/edge-caddy/`**. The edge image is built on the server from
+`caddy/Dockerfile` — `caddy:2-alpine` plus the Cloudflare DNS plugin the wildcard
+certificate needs (see [Certs](#certs)). Everything else is pulled from Docker Hub; no ghcr
+login is needed for the edge itself.
 
 ## Routes
 | Domain | Upstream container |
@@ -14,7 +16,6 @@ Server dir: **`/opt/unividuell/edge-caddy/`**. Images are pulled from Docker Hub
 | `countdown.unividuell.org` | `countdown-web:80` |
 | `beta.countdown.unividuell.org` | `countdown-staging-web:80` |
 | `mobility.unividuell.org` | `mobility-manager:8080` |
-| `news.zingler46.unividuell.org` | `comunio-news-app:8080` (basicauth) |
 | `stats.unividuell.org` | `edge-lgtm:3000` (Grafana, basicauth) |
 | `files.unividuell.org` | *(static file transfer, open — the file name is the secret)* |
 | `prueffahrt.unividuell.org` | *(static Prüffahrt showcase, open — `/` redirects to `/showcase.html`)* |
@@ -23,20 +24,19 @@ Server dir: **`/opt/unividuell/edge-caddy/`**. Images are pulled from Docker Hub
 ```bash
 mkdir -p /opt/unividuell/edge-caddy && cd /opt/unividuell/edge-caddy
 curl -fsSL https://raw.githubusercontent.com/unividuell/edge-caddy/main/update.sh -o update.sh && chmod +x update.sh
-./update.sh          # fetches compose.yaml + Caddyfile + a .env template, then stops
+./update.sh          # fetches the config files + a .env template, then stops
 # edit .env: fill in credentials (see below)
-./update.sh          # creates the edge network, pulls caddy, starts the edge
+./update.sh          # creates the networks, builds the edge image, validates, starts the edge
 ```
 
 `.env` holds all credentials and is never committed. Copy `.env.example` and fill in:
 
 | Variable | Meaning |
 | --- | --- |
-| `NEWS_AUTH_USER_1`, `NEWS_AUTH_USER_2` | the two `news.zingler46` users |
-| `NEWS_AUTH_HASH` | bcrypt hash shared by both news users |
 | `STATS_AUTH_USER`, `STATS_AUTH_HASH` | Grafana user at `stats.unividuell.org` (required) |
 | `COUNTDOWN_DB_MONITOR_PASSWORD` | countdown's read-only `monitor` role, both stacks (required) |
 | `ALERT_SMTP_USER`, `ALERT_SMTP_PASSWORD`, `ALERT_EMAIL_TO` | Gmail sender, its app password, alert recipient (required) |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare token for the wildcard certificate's DNS-01 challenge (required; scope and how to create it in `.env.example`) |
 
 ```bash
 docker run --rm caddy:2-alpine caddy hash-password --plaintext '<password>'
@@ -51,30 +51,42 @@ always exactly 60 characters, so `update.sh` requires this exact shape and abort
 before deploying otherwise:
 
 ```
-NEWS_AUTH_HASH='$2a$14$.....................................................'
+STATS_AUTH_HASH='$2a$14$.....................................................'
 ```
 
 ## Update (route/infra changes)
 ```bash
 cd /opt/unividuell/edge-caddy && ./update.sh
 ```
-Re-fetches `compose.yaml`, `Caddyfile`, `README.md`, and itself from `main`, then:
+Re-fetches `caddy/Dockerfile`, the monitoring config, `README.md`, and itself from `main`,
+and stages `compose.yaml` and `Caddyfile` as `compose.yaml.new` / `Caddyfile.new` — the
+live files stay as they are until the gate below has passed, so an aborted run leaves
+nothing a restart of the edge could trip over. Then:
 
 1. **`.env` preflight** — every required variable present and non-empty, and every hash
    in the single-quoted 60-character form. Aborts with an explanatory message otherwise,
    before anything is touched.
-2. Ensures the `edge` network and runs `docker compose pull`.
-3. **Validation gate** — `caddy validate` against the real `Caddyfile` with the real
-   `.env`, in a throwaway container that publishes no ports. Aborts if the config would
-   not start, leaving the running edge untouched.
-4. `docker compose up -d`, then `caddy reload` — `up -d` does not recreate the container
-   for a `Caddyfile`-only change, so the reload is what picks up new sites and routes.
+2. Ensures the `edge` and `monitoring` networks, pulls `edge-lgtm`, and **builds the edge
+   image** from `caddy/Dockerfile` with the latest Caddy and the latest Cloudflare plugin.
+   That takes about 2–3 minutes when either changed and is cached otherwise. A failed build
+   aborts here; the running edge keeps its image and its files.
+3. **Validation gate** — `caddy validate` against the fetched `Caddyfile.new` with the real
+   `.env`, on the image just built, in a throwaway container that publishes no ports.
+   Aborts if the config would not start — including a missing DNS plugin or a malformed
+   `CLOUDFLARE_API_TOKEN` — leaving the running edge and its files untouched.
+4. Puts `Caddyfile` and `compose.yaml` in place (the Caddyfile rewritten in place, since it
+   is bind-mounted), then `docker compose up -d` and `caddy reload` — `up -d` recreates the
+   container only when `compose.yaml` or the image changed, so the reload is what picks up
+   new sites and routes.
 
 ## Add a new site
-1. Add a site block to `Caddyfile`: `<domain> { reverse_proxy <container_name>:<port> }`.
-2. Make sure the app's compose attaches that container to the external `edge` network with
+1. Pick a **one-label** name, `<name>.unividuell.org`. The wildcard DNS record and the
+   wildcard certificate already cover it: no Cloudflare record, no certificate of its own,
+   and the name never appears in a CT log (see [Certs](#certs)). Not `<a>.<b>.unividuell.org`.
+2. Add a site block to `Caddyfile`: `<name>.unividuell.org { reverse_proxy <container_name>:<port> }`.
+3. Make sure the app's compose attaches that container to the external `edge` network with
    a stable `container_name` and **publishes no host ports**.
-3. Commit, then on the server `./update.sh`. Caddy obtains the cert on first request.
+4. Commit, then on the server `./update.sh`.
 
 ## Filetransfer
 
@@ -173,10 +185,34 @@ sudo jq -r '[.duration, .status, .request.host, .request.uri] | @tsv' logs/acces
 ```
 
 ## Certs
-Caddy stores certs/ACME state in the `caddy-data` volume. A fresh volume triggers
-Let's Encrypt issuance for every domain on first request — well within rate limits for
-the handful of domains here. DNS for each domain must already point at this host and
-80/443 must be open.
+Every one-label site is served from **one wildcard certificate, `*.unividuell.org`**. Caddy
+obtains and renews it itself by DNS-01: it writes a TXT record through the Cloudflare API
+with `CLOUDFLARE_API_TOKEN` from `.env`. Since 2.10 Caddy serves that certificate for every
+site block it covers instead of ordering one per name. DNS has a single `*` A record to
+`158.101.161.126` (DNS only, not proxied), so a new one-label name resolves without a record
+of its own.
+
+Why: every publicly trusted certificate lands in the Certificate Transparency logs, and bots
+read them live — `prueffahrt.` got its first crawler in the second its certificate was
+issued and a `.env` scanner 30 s later. With the wildcard, the logs show `*.unividuell.org`
+and nothing else for a new name. Names issued before (countdown, beta.countdown, mobility,
+stats, files, prueffahrt, monitoring, news.zingler46) stay on crt.sh for good.
+
+- **One-label names only.** The wildcard covers exactly one label. `beta.countdown.` is the
+  last two-label name; it keeps its own HTTP-01 certificate (and CT entry) until countdown
+  renames it.
+- **Keep the explicit A records until then.** While `beta.countdown` has a record,
+  `countdown` without its own would be an empty node, and the wildcard does not answer for
+  those. Once `beta.countdown` is gone, its block and record go, and the `*` record alone is
+  enough.
+- **Unknown names:** a one-label name without a site block gets the TLS handshake and a
+  closed connection; a two-label name gets no certificate and fails in the handshake.
+- **The token** needs Zone · DNS · Edit and Zone · Zone · Read for `unividuell.org` only,
+  restricted to the server's IP (see `.env.example`). Caddy refuses a malformed token at
+  start — and with it the whole edge — so `update.sh`'s `caddy validate` gate stops it first.
+  A failing renewal mails "Edge: Zertifikat" (see [monitoring](#metrics-logs-and-traces-edge-lgtm)).
+
+Certificates and ACME state live in the `caddy-data` volume.
 
 ## Metrics, logs and traces (`edge-lgtm`)
 
@@ -189,13 +225,17 @@ anonymous with admin rights.
 apps ── OTLP (metrics, traces) ── monitoring network ──┐
 docker json-file logs (every container) ── ro mount ───┼──> collector ──> Prometheus / Loki / Tempo ──> Grafana
 logs/access.log (this edge) ───────────────────────────┤
+logs/system.log (this edge, tls lines only) ───────────┤
 host CPU / RAM / disk / load ──────────────────────────┤
 project databases (role `monitor`) ── monitoring network ┘
 ```
 
 Our collector config is `monitoring/otelcol-config.yaml`; it replaces the image's own.
 Alert rules, the mail contact point and the routing are `monitoring/grafana-alerting.yaml`:
-5xx answers, `ERROR` log lines, an app gone silent and a nearly full disk, production only.
+5xx answers, `ERROR` log lines, an app gone silent and a nearly full disk, production only —
+plus certificate errors at the edge ("Edge: Zertifikat": Caddy failed to obtain or renew a
+certificate, from the `tls.*` lines of `logs/system.log`, `service_name="system-log"`; the
+file's other lines stay out of Loki because they carry unmasked client IPs).
 Mail goes via Gmail to `ALERT_EMAIL_TO`. It cannot report the server itself being down.
 Dashboards are `monitoring/dashboards/*.json` (`countdown`, `mobility-manager`, `server`), provisioned at start —
 edits in the Grafana UI do not survive a restart. A new dashboard also needs its line in

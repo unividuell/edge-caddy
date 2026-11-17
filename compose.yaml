@@ -2,7 +2,11 @@ name: edge-caddy
 
 services:
   caddy:
-    image: caddy:2-alpine
+    # Built by update.sh from caddy/Dockerfile (caddy:2-alpine + the Cloudflare DNS plugin).
+    # The context is ./caddy on purpose: the server directory holds .env, logs/ and
+    # filetransfer/, and a `.` context would ship all of them to the builder.
+    build: ./caddy
+    image: edge-caddy:local
     container_name: edge-caddy
     restart: unless-stopped
     ports:
@@ -10,11 +14,10 @@ services:
       - "443:443"
       - "443:443/udp"
     environment:
-      - NEWS_AUTH_USER_1=${NEWS_AUTH_USER_1}
-      - NEWS_AUTH_USER_2=${NEWS_AUTH_USER_2}
-      - NEWS_AUTH_HASH=${NEWS_AUTH_HASH}
       - STATS_AUTH_USER=${STATS_AUTH_USER}
       - STATS_AUTH_HASH=${STATS_AUTH_HASH}
+      # DNS-01 for the wildcard certificate, read at runtime ({env.…} in the Caddyfile).
+      - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - ./logs:/var/log/caddy

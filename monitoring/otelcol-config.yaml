@@ -7,6 +7,7 @@
 #   apps (OTLP) ──────────────┐
 #   docker json-file logs ────┼──> collector ──> Prometheus / Loki / Tempo ──> Grafana
 #   caddy access.log ─────────┤
+#   caddy system.log (tls) ───┤
 #   host CPU / RAM / disk ────┤
 #   project databases ────────┘
 
@@ -78,6 +79,21 @@ receivers:
       service.namespace: edge-caddy
       service.name: access-log
       deployment.environment.name: production
+
+  # unividuell: Caddy's own log, certificate lines only — the alert "Edge: Zertifikat" reads
+  # them. Every other line stays out: http.log.error lines carry unmasked client IPs, which
+  # the access log masks on purpose. No deployment.environment.name, so the production-only
+  # "Fehler im Log" rule stays off this stream; the upstream errors in it belong to "App down".
+  filelog/caddy-tls:
+    include: [/caddy-logs/system.log]
+    start_at: end
+    storage: file_storage
+    operators:
+      - type: filter
+        expr: 'not (body matches "\"logger\":\"tls\\.")'
+    resource:
+      service.namespace: edge-caddy
+      service.name: system-log
 
   # unividuell: the host. Inside a container /proc already shows host-wide CPU, memory and
   # load, so no host mounts are needed. The container's own `/` is an overlay; the disk
@@ -234,7 +250,7 @@ service:
       processors: [resource/countdown-staging-db, batch]
       exporters: [otlphttp/metrics]
     logs:
-      receivers: [otlp, filelog/caddy]
+      receivers: [otlp, filelog/caddy, filelog/caddy-tls]
       processors: [batch]
       exporters: [otlphttp/logs]
     # unividuell
