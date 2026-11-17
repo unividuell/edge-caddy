@@ -333,3 +333,34 @@ groups:
               refId: C
               type: math
               expression: '$A > 500 && $A > 10 * $B / 288'
+
+      # Caddy could not obtain or renew a certificate. Every one-label site shares the one
+      # *.unividuell.org wildcard, so a broken Cloudflare token takes them all down at once —
+      # 30 days after the first failed renewal; this mails on that first one. A single failed
+      # attempt is enough: Caddy retries by itself, so a mail that resolves within the hour
+      # was transient.
+      - uid: edge-cert
+        title: 'Edge: Zertifikat'
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: Error
+        labels: {}
+        annotations:
+          summary: '{{ $values.A.Value }} fehlgeschlagene Zertifikatsversuche in 1 h, siehe logs/system.log'
+        data:
+          - refId: A
+            datasourceUid: loki
+            relativeTimeRange: {from: 3600, to: 0}
+            model:
+              refId: A
+              queryType: instant
+              expr: sum(count_over_time({service_namespace="edge-caddy", service_name="system-log"} | json | level="error" | logger=~`tls\.(obtain|renew)` [1h]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}

@@ -221,13 +221,17 @@ anonymous with admin rights.
 apps ── OTLP (metrics, traces) ── monitoring network ──┐
 docker json-file logs (every container) ── ro mount ───┼──> collector ──> Prometheus / Loki / Tempo ──> Grafana
 logs/access.log (this edge) ───────────────────────────┤
+logs/system.log (this edge, tls lines only) ───────────┤
 host CPU / RAM / disk / load ──────────────────────────┤
 project databases (role `monitor`) ── monitoring network ┘
 ```
 
 Our collector config is `monitoring/otelcol-config.yaml`; it replaces the image's own.
 Alert rules, the mail contact point and the routing are `monitoring/grafana-alerting.yaml`:
-5xx answers, `ERROR` log lines, an app gone silent and a nearly full disk, production only.
+5xx answers, `ERROR` log lines, an app gone silent and a nearly full disk, production only —
+plus certificate errors at the edge ("Edge: Zertifikat": Caddy failed to obtain or renew a
+certificate, from the `tls.*` lines of `logs/system.log`, `service_name="system-log"`; the
+file's other lines stay out of Loki because they carry unmasked client IPs).
 Mail goes via Gmail to `ALERT_EMAIL_TO`. It cannot report the server itself being down.
 Dashboards are `monitoring/dashboards/*.json` (`countdown`, `mobility-manager`, `server`), provisioned at start —
 edits in the Grafana UI do not survive a restart. A new dashboard also needs its line in
