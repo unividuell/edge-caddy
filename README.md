@@ -201,10 +201,11 @@ stats, files, prueffahrt, monitoring, news.zingler46) stay on crt.sh for good.
 - **One-label names only.** The wildcard covers exactly one label. `beta.countdown.` is the
   last two-label name; it keeps its own HTTP-01 certificate (and CT entry) until countdown
   renames it.
-- **Keep the explicit A records until then.** While `beta.countdown` has a record,
-  `countdown` without its own would be an empty node, and the wildcard does not answer for
-  those. Once `beta.countdown` is gone, its block and record go, and the `*` record alone is
-  enough.
+- **Explicit A records:** only `countdown` and `beta.countdown` keep one (plus records that
+  point elsewhere, such as `huettehuette`). Every other one-label name is answered by `*`.
+  `countdown` needs its own while `beta.countdown` has one: without it, `countdown` would be
+  an empty node above `beta.countdown`, and the wildcard does not answer for those. Once
+  `beta.countdown` is gone, its block and record go, then `countdown`'s record.
 - **Unknown names:** a one-label name without a site block gets the TLS handshake and a
   closed connection; a two-label name gets no certificate and fails in the handshake.
 - **The token** needs Zone · DNS · Edit and Zone · Zone · Read for `unividuell.org` only,
@@ -249,7 +250,7 @@ project is `production`. Apps sending OTLP must set the same values themselves.
 
 ### One-time setup
 
-1. **DNS**: an A record `stats.unividuell.org` → the server.
+1. **DNS**: nothing to do — the `*` record answers `stats.unividuell.org` (see [Certs](#certs)).
 2. **`.env`**: add `STATS_AUTH_USER` / `STATS_AUTH_HASH` (hash rules as above),
    `COUNTDOWN_DB_MONITOR_PASSWORD` (`openssl rand -hex 24`; no `$`) and
    `ALERT_SMTP_USER` / `ALERT_SMTP_PASSWORD` (a Gmail app password, without spaces) / `ALERT_EMAIL_TO`.
