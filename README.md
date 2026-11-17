@@ -33,11 +33,10 @@ curl -fsSL https://raw.githubusercontent.com/unividuell/edge-caddy/main/update.s
 
 | Variable | Meaning |
 | --- | --- |
-| `NEWS_AUTH_USER_1`, `NEWS_AUTH_USER_2` | the two `news.zingler46` users |
-| `NEWS_AUTH_HASH` | bcrypt hash shared by both news users |
 | `STATS_AUTH_USER`, `STATS_AUTH_HASH` | Grafana user at `stats.unividuell.org` (required) |
 | `COUNTDOWN_DB_MONITOR_PASSWORD` | countdown's read-only `monitor` role, both stacks (required) |
 | `ALERT_SMTP_USER`, `ALERT_SMTP_PASSWORD`, `ALERT_EMAIL_TO` | Gmail sender, its app password, alert recipient (required) |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare token for the wildcard certificate's DNS-01 challenge (required; scope and how to create it in `.env.example`) |
 
 ```bash
 docker run --rm caddy:2-alpine caddy hash-password --plaintext '<password>'
@@ -52,22 +51,27 @@ always exactly 60 characters, so `update.sh` requires this exact shape and abort
 before deploying otherwise:
 
 ```
-NEWS_AUTH_HASH='$2a$14$.....................................................'
+STATS_AUTH_HASH='$2a$14$.....................................................'
 ```
 
 ## Update (route/infra changes)
 ```bash
 cd /opt/unividuell/edge-caddy && ./update.sh
 ```
-Re-fetches `compose.yaml`, `Caddyfile`, `README.md`, and itself from `main`, then:
+Re-fetches `compose.yaml`, `Caddyfile`, `caddy/Dockerfile`, the monitoring config,
+`README.md`, and itself from `main`, then:
 
 1. **`.env` preflight** — every required variable present and non-empty, and every hash
    in the single-quoted 60-character form. Aborts with an explanatory message otherwise,
    before anything is touched.
-2. Ensures the `edge` network and runs `docker compose pull`.
+2. Ensures the `edge` and `monitoring` networks, pulls `edge-lgtm`, and **builds the edge
+   image** from `caddy/Dockerfile` with the latest Caddy and the latest Cloudflare plugin.
+   That takes about 2–3 minutes when either changed and is cached otherwise. A failed build
+   aborts here, before anything is touched.
 3. **Validation gate** — `caddy validate` against the real `Caddyfile` with the real
-   `.env`, in a throwaway container that publishes no ports. Aborts if the config would
-   not start, leaving the running edge untouched.
+   `.env`, on the image just built, in a throwaway container that publishes no ports.
+   Aborts if the config would not start — including a missing DNS plugin or a malformed
+   `CLOUDFLARE_API_TOKEN` — leaving the running edge untouched.
 4. `docker compose up -d`, then `caddy reload` — `up -d` does not recreate the container
    for a `Caddyfile`-only change, so the reload is what picks up new sites and routes.
 
