@@ -19,7 +19,6 @@ login is needed for the edge itself.
 | `stats.unividuell.org` | `edge-lgtm:3000` (Grafana, basicauth) |
 | `files.unividuell.org` | *(static file transfer, open — the file name is the secret)* |
 | `prueffahrt.unividuell.org` | *(static Prüffahrt showcase, open — `/` redirects to `/showcase.html`)* |
-| `klang.unividuell.org` | *(static sound test page from `klang/`, open, temporary)* |
 
 ## Bootstrap (first time)
 ```bash
@@ -152,23 +151,6 @@ scp -r showcase.html spectrogram-run3.jpg vespa-mount.jpg preview.jpg fonts oci.
 ```
 
 A new version is live as soon as the copy finishes; Caddy needs no reload for content changes.
-
-## Sound test
-
-`https://klang.unividuell.org` serves `klang/index.html` from this repo: a standalone page that
-checks on a real iPhone whether waking a Web Audio graph stops music playing in another app,
-and which `navigator.audioSession` type avoids it: a click-through for the tester (a hearing check,
-then ten rounds, the result to copy or share at the end; `?gegenprobe` runs a three-round
-cross-check of whether a session type outlives a reload). It mirrors the audio path of the countdown
-project's web app (`webapp-vue/src/ui/audio.ts`, `woodKnock.ts`) and names no product. Unlike
-the Prüffahrt page it is versioned here, so `update.sh` fetches it and a change goes live with
-the next run; Caddy needs no reload for it.
-
-Same `noindex` header as the filetransfer site, plus `Cache-Control: no-store` (the tester
-reloads between runs) and a CSP that allows inline script and style only, so the page cannot
-load or send anything elsewhere. The tester's answers stay in their browser's `localStorage`
-until they copy them out. Temporary: remove the block, the mount and the `update.sh` lines
-once the question is answered.
 
 ## Access log
 

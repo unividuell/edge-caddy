@@ -21,10 +21,6 @@ if cmp -s update.sh.new update.sh; then rm update.sh.new; else mv update.sh.new 
 mkdir -p caddy
 curl -fsSL "$BASE/caddy/Dockerfile" -o caddy/Dockerfile
 
-# klang.unividuell.org: one static page, versioned here (README, "Sound test").
-mkdir -p klang
-curl -fsSL "$BASE/klang/index.html" -o klang/index.html
-
 # Monitoring stack config (edge-lgtm). A new dashboard needs its own line here.
 mkdir -p monitoring/dashboards
 curl -fsSL "$BASE/monitoring/otelcol-config.yaml"    -o monitoring/otelcol-config.yaml

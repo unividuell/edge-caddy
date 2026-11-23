@@ -23,7 +23,6 @@ services:
       - ./logs:/var/log/caddy
       - ./filetransfer:/srv/filetransfer:ro
       - ./prueffahrt:/srv/prueffahrt:ro
-      - ./klang:/srv/klang:ro
       - caddy-data:/data
       - caddy-config:/config
     networks:

@@ -100,19 +100,3 @@ prueffahrt.unividuell.org {
 	root * /srv/prueffahrt
 	file_server
 }
-
-# klang — a throwaway sound test for a real iPhone (one static page, versioned in klang/,
-# fetched by update.sh). Same noindex reasoning as files.unividuell.org. The CSP makes the
-# page's promise to its tester hold: nothing loads from or reports to anywhere else.
-# `no-store`: the tester reloads between runs and must always get the current page.
-klang.unividuell.org {
-	log access
-	header {
-		X-Robots-Tag "noindex, nofollow, noarchive"
-		Referrer-Policy no-referrer
-		Content-Security-Policy "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
-		Cache-Control no-store
-	}
-	root * /srv/klang
-	file_server
-}
