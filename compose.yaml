@@ -35,7 +35,7 @@ services:
   lgtm:
     # Pinned: 0.x, a bump can change the data layout. Diff monitoring/otelcol-config.yaml
     # against the new image's copy first (see the file's header).
-    image: grafana/otel-lgtm:0.22.1
+    image: grafana/otel-lgtm:0.41.2
     container_name: edge-lgtm
     restart: unless-stopped
     mem_limit: 2g
