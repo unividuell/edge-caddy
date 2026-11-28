@@ -67,6 +67,8 @@ services:
       - ./monitoring/grafana-alerting.yaml:/otel-lgtm/grafana/conf/provisioning/alerting/unividuell.yaml:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - ./logs:/caddy-logs:ro
+      # The host's disk usage: hostmetrics' root_path (monitoring/otelcol-config.yaml).
+      - /:/hostfs:ro
       - lgtm-data:/data
     # OTLP for senders outside docker, local only: the home server's backup mirror reaches
     # it through an SSH tunnel (backup-mirror/).

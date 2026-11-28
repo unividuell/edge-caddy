@@ -95,11 +95,15 @@ receivers:
       service.namespace: edge-caddy
       service.name: system-log
 
-  # unividuell: the host. Inside a container /proc already shows host-wide CPU, memory and
-  # load, so no host mounts are needed. The container's own `/` is an overlay; the disk
-  # docker writes to shows up through its bind mounts, hence the filter by fs type.
+  # unividuell: the host, read through its root filesystem mounted at /hostfs (compose.yaml).
+  # Since otelcol 0.165 the filesystem scraper reports nothing for the container's bind
+  # mounts, which used to stand in for the host disk. Only the host's `/`: /boot is a small
+  # partition of its own and would otherwise show up as "Platte" on the dashboard.
+  # system.cpu.utilization carries no per-core `cpu` label any more (0.165); count cores
+  # with system.cpu.logical.count instead.
   hostmetrics:
     collection_interval: 30s
+    root_path: /hostfs
     scrapers:
       cpu:
         metrics:
@@ -111,9 +115,9 @@ receivers:
             enabled: true
       load:
       filesystem:
-        include_fs_types:
+        include_mount_points:
           match_type: strict
-          fs_types: [ext4, xfs, btrfs]
+          mount_points: ["/"]
         metrics:
           system.filesystem.utilization:
             enabled: true
