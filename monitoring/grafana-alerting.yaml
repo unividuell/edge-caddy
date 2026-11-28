@@ -235,7 +235,7 @@ groups:
             model:
               refId: A
               instant: true
-              expr: max(system_cpu_load_average_5m{service_name="host"}) / count(count by (cpu) (system_cpu_utilization_ratio{service_name="host"}))
+              expr: max(system_cpu_load_average_5m{service_name="host"}) / max(system_cpu_logical_count{service_name="host"})
           - refId: C
             datasourceUid: __expr__
             model:
